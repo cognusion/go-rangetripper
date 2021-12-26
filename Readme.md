@@ -25,13 +25,13 @@ N+1 actual downloaders are most likely as the +1 covers any gap from non-even di
   * [func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error)](#RangeTripper.RoundTrip)
   * [func (rt *RangeTripper) SetClient(client Client)](#RangeTripper.SetClient)
 * [type RetryClient](#RetryClient)
-  * [func NewClient(retries int, every, timeout time.Duration) *RetryClient](#NewClient)
-  * [func NewClientWithExponentialBackoff(retries int, initially, timeout time.Duration) *RetryClient](#NewClientWithExponentialBackoff)
+  * [func NewRetryClient(retries int, every, timeout time.Duration) *RetryClient](#NewRetryClient)
+  * [func NewRetryClientWithExponentialBackoff(retries int, initially, timeout time.Duration) *RetryClient](#NewRetryClientWithExponentialBackoff)
   * [func (w *RetryClient) Do(req *http.Request) (*http.Response, error)](#RetryClient.Do)
 
 
 #### <a name="pkg-files">Package files</a>
-[client.go](https://github.com/cognusion/go-rangetripper/tree/master/client.go) [readall.go](https://github.com/cognusion/go-rangetripper/tree/master/readall.go) [rt.go](https://github.com/cognusion/go-rangetripper/tree/master/rt.go)
+[client.go](https://github.com/cognusion/go-rangetripper/tree/master/client.go) [readall.go](https://github.com/cognusion/go-rangetripper/tree/master/readall.go) [retryclient.go](https://github.com/cognusion/go-rangetripper/tree/master/retryclient.go) [rt.go](https://github.com/cognusion/go-rangetripper/tree/master/rt.go)
 
 
 ## <a name="pkg-constants">Constants</a>
@@ -56,7 +56,7 @@ with Zero allocs and 7x better performance
 
 
 
-## <a name="Client">type</a> [Client](https://github.com/cognusion/go-rangetripper/tree/master/client.go?s=542:610#L17)
+## <a name="Client">type</a> [Client](https://github.com/cognusion/go-rangetripper/tree/master/client.go?s=500:568#L14)
 ``` go
 type Client interface {
     Do(*http.Request) (*http.Response, error)
@@ -66,11 +66,11 @@ Client is an interface that could refer to an http.Client or a rangetripper.Retr
 
 
 ``` go
-var DefaultClient Client = NewClient(10, 2*time.Second, 60*time.Second)
+var DefaultClient Client = NewRetryClient(10, 2*time.Second, 60*time.Second)
 ```
 DefaultClient is what RangeTripper will use to actually make the individual GET requests.
 Change the values to change the outcome. Don't set the DefaultClient's Client.Transport
-to a RangeTripper, or :mindblown:. DefaultClient can be an http.Client if you prefer
+to a RangeTripper, or :mindblown:. DefaultClient can be a lowly http.Client if you prefer
 
 
 
@@ -137,12 +137,9 @@ SetClient allows for overriding the Client used to make the requests.
 
 
 
-## <a name="RetryClient">type</a> [RetryClient](https://github.com/cognusion/go-rangetripper/tree/master/client.go?s=699:797#L22)
+## <a name="RetryClient">type</a> [RetryClient](https://github.com/cognusion/go-rangetripper/tree/master/retryclient.go?s=193:291#L12)
 ``` go
 type RetryClient struct {
-    Client *http.Client
-
-    Retrier *retrier.Retrier
     // contains filtered or unexported fields
 }
 
@@ -155,28 +152,30 @@ RetryClient contains variables and methods to use when making smarter HTTP reque
 
 
 
-### <a name="NewClient">func</a> [NewClient](https://github.com/cognusion/go-rangetripper/tree/master/client.go?s=857:927#L29)
+### <a name="NewRetryClient">func</a> [NewRetryClient](https://github.com/cognusion/go-rangetripper/tree/master/retryclient.go?s=437:512#L20)
 ``` go
-func NewClient(retries int, every, timeout time.Duration) *RetryClient
+func NewRetryClient(retries int, every, timeout time.Duration) *RetryClient
 ```
-NewClient returns a Client with the specified settings
+NewRetryClient returns a RetryClient that will retry failed requests ``retries`` times, every ``every``,
+and use ``timeout`` as a timeout
 
 
-### <a name="NewClientWithExponentialBackoff">func</a> [NewClientWithExponentialBackoff](https://github.com/cognusion/go-rangetripper/tree/master/client.go?s=1179:1275#L41)
+### <a name="NewRetryClientWithExponentialBackoff">func</a> [NewRetryClientWithExponentialBackoff](https://github.com/cognusion/go-rangetripper/tree/master/retryclient.go?s=895:996#L33)
 ``` go
-func NewClientWithExponentialBackoff(retries int, initially, timeout time.Duration) *RetryClient
+func NewRetryClientWithExponentialBackoff(retries int, initially, timeout time.Duration) *RetryClient
 ```
-NewClientWithExponentialBackoff returns a Client with the specified settings
+NewRetryClientWithExponentialBackoff returns a RetryClient that will retry failed requests ``retries`` times,
+first after ``initially`` and exponentially longer each time, and use ``timeout`` as a timeout
 
 
 
 
 
-### <a name="RetryClient.Do">func</a> (\*RetryClient) [Do](https://github.com/cognusion/go-rangetripper/tree/master/client.go?s=1532:1599#L52)
+### <a name="RetryClient.Do">func</a> (\*RetryClient) [Do](https://github.com/cognusion/go-rangetripper/tree/master/retryclient.go?s=1272:1339#L44)
 ``` go
 func (w *RetryClient) Do(req *http.Request) (*http.Response, error)
 ```
-Do takes a Request, and returns a Response or an error, following the rules
+Do takes a Request, and returns a Response or an error, following the rules of the RetryClient
 
 
 
