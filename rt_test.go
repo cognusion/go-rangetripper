@@ -1,0 +1,163 @@
+package rangetripper
+
+import (
+	. "github.com/smartystreets/goconvey/convey"
+
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
+	"time"
+)
+
+func Test_StandardDownload(t *testing.T) {
+	tfile, err := ioutil.TempFile("/tmp", "rt")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(tfile.Name())
+
+	Convey("When a server is started that doesn't support ranges, RangeTripper downloads the content correctly", t, func() {
+		serverBytes := []byte(`OK I have something to say here weeeeee`)
+
+		// Start a local HTTP server
+		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			rw.Write(serverBytes) // Simple write
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		// Use Client & URL from our local test server
+		//l := log.New(os.Stderr, "[DEBUG] ", 0)
+		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
+
+		rt, err := New(10, tfile.Name())
+		So(err, ShouldBeNil)
+
+		req := httptest.NewRequest("GET", server.URL, nil)
+
+		_, rerr := rt.RoundTrip(req)
+		So(rerr, ShouldBeNil)
+		fileContents, ferr := ioutil.ReadFile(tfile.Name())
+		So(ferr, ShouldBeNil)
+		So(string(fileContents), ShouldEqual, string(serverBytes))
+
+	})
+
+}
+
+func Test_StandardDownloadHTTPClient(t *testing.T) {
+	tfile, err := ioutil.TempFile("/tmp", "rt")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(tfile.Name())
+
+	Convey("When a server is started that doesn't support ranges, and RangeTripper is configured with http.Client, it still downloads the content correctly", t, func() {
+		serverBytes := []byte(`OK I have something to say here weeeeee`)
+
+		// Start a local HTTP server
+		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			rw.Write(serverBytes) // Simple write
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		// Use Client & URL from our local test server
+		//l := log.New(os.Stderr, "[DEBUG] ", 0)
+		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
+
+		rt, err := New(10, tfile.Name())
+		rt.SetClient(new(http.Client)) // use a normal http.Client
+		So(err, ShouldBeNil)
+
+		req := httptest.NewRequest("GET", server.URL, nil)
+
+		_, rerr := rt.RoundTrip(req)
+		So(rerr, ShouldBeNil)
+		fileContents, ferr := ioutil.ReadFile(tfile.Name())
+		So(ferr, ShouldBeNil)
+		So(string(fileContents), ShouldEqual, string(serverBytes))
+
+	})
+
+}
+
+func Test_RangeDownload(t *testing.T) {
+	tfile, err := ioutil.TempFile("/tmp", "rt")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(tfile.Name())
+
+	tfile2, err := ioutil.TempFile("/tmp", "r2t")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(tfile2.Name())
+
+	Convey("When a server is started that supports ranges, RangeTripper downloads the content correctly", t, func() {
+		serverBytes := []byte(`OK I have something to say here weeeeee`)
+		werr := ioutil.WriteFile(tfile2.Name(), serverBytes, 0)
+		So(werr, ShouldBeNil)
+
+		// Start a local HTTP server
+		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			http.ServeFile(rw, req, tfile2.Name()) // ServeFile sets Content-Length and Accept-Ranges
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		// Use Client & URL from our local test server
+		//l := log.New(os.Stderr, "[DEBUG] ", 0)
+		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
+
+		rt, err := New(10, tfile.Name())
+		So(err, ShouldBeNil)
+
+		req := httptest.NewRequest("GET", server.URL, nil)
+
+		_, rerr := rt.RoundTrip(req)
+		So(rerr, ShouldBeNil)
+		fileContents, ferr := ioutil.ReadFile(tfile.Name())
+		So(ferr, ShouldBeNil)
+		So(string(fileContents), ShouldEqual, string(serverBytes))
+
+	})
+
+}
+
+func Test_StandardDownloadBroken(t *testing.T) {
+	tfile, err := ioutil.TempFile("/tmp", "rt")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(tfile.Name())
+
+	Convey("When a server is started that doesn't support ranges, and times out, retries happen, and then errors out", t, func() {
+		//serverBytes := []byte(`OK I have something to say here weeeeee`)
+
+		// Start a local HTTP server
+		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			time.Sleep(2 * time.Second)
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		// Use Client & URL from our local test server
+		//l := log.New(os.Stderr, "[DEBUG] ", 0)
+		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
+
+		rt, err := New(10, tfile.Name())
+		rt.SetClient(NewRetryClient(3, 10*time.Millisecond, 10*time.Millisecond)) // custom RetryClient with short times
+		So(err, ShouldBeNil)
+
+		req := httptest.NewRequest("GET", server.URL, nil)
+
+		_, rerr := rt.RoundTrip(req)
+		So(rerr, ShouldNotBeNil)
+
+	})
+
+}
