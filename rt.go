@@ -178,6 +178,11 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	return res, nil
 }
 
+// Do is a satisfier of the rangetripper.Client interface, and is identical to RoundTrip
+func (rt *RangeTripper) Do(r *http.Request) (*http.Response, error) {
+	return rt.RoundTrip(r)
+}
+
 // head returns the Response or error from a HEAD request for the specified URL
 func (rt *RangeTripper) head(url string) (*http.Response, error) {
 	var (

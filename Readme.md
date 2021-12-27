@@ -23,6 +23,7 @@ N+1 actual downloaders are most likely as the +1 covers any gap from non-even di
 * [type RangeTripper](#RangeTripper)
   * [func New(parallelDownloads int, outputFilePath string) (*RangeTripper, error)](#New)
   * [func NewWithLoggers(parallelDownloads int, outputFilePath string, timingLogger, debugLogger *log.Logger) (*RangeTripper, error)](#NewWithLoggers)
+  * [func (rt *RangeTripper) Do(r *http.Request) (*http.Response, error)](#RangeTripper.Do)
   * [func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error)](#RangeTripper.RoundTrip)
   * [func (rt *RangeTripper) SetClient(client Client)](#RangeTripper.SetClient)
 * [type RetryClient](#RetryClient)
@@ -135,6 +136,15 @@ func NewWithLoggers(parallelDownloads int, outputFilePath string, timingLogger, 
 ```
 NewWithLoggers returns a RangeTripper or an error. Logged messages are sent to the specified Logger, or discarded if nil.
 
+
+
+
+
+### <a name="RangeTripper.Do">func</a> (\*RangeTripper) [Do](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=5373:5440#L182)
+``` go
+func (rt *RangeTripper) Do(r *http.Request) (*http.Response, error)
+```
+Do is a satisfier of the rangetripper.Client interface, and is identical to RoundTrip
 
 
 

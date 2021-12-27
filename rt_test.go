@@ -4,6 +4,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 
 	"io/ioutil"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -31,7 +32,7 @@ func ExampleRangeTripper() {
 }
 
 func Test_StandardDownload(t *testing.T) {
-	tfile, err := ioutil.TempFile("/tmp", "rt")
+	tfile, err := ioutil.TempFile("/tmp", "sd")
 	if err != nil {
 		panic(err)
 	}
@@ -67,7 +68,7 @@ func Test_StandardDownload(t *testing.T) {
 }
 
 func Test_StandardDownloadHTTPClient(t *testing.T) {
-	tfile, err := ioutil.TempFile("/tmp", "rt")
+	tfile, err := ioutil.TempFile("/tmp", "sdhc")
 	if err != nil {
 		panic(err)
 	}
@@ -104,13 +105,13 @@ func Test_StandardDownloadHTTPClient(t *testing.T) {
 }
 
 func Test_RangeDownload(t *testing.T) {
-	tfile, err := ioutil.TempFile("/tmp", "rt")
+	tfile, err := ioutil.TempFile("/tmp", "rd")
 	if err != nil {
 		panic(err)
 	}
 	defer os.Remove(tfile.Name())
 
-	tfile2, err := ioutil.TempFile("/tmp", "r2t")
+	tfile2, err := ioutil.TempFile("/tmp", "rd2")
 	if err != nil {
 		panic(err)
 	}
@@ -148,7 +149,7 @@ func Test_RangeDownload(t *testing.T) {
 }
 
 func Test_StandardDownloadBroken(t *testing.T) {
-	tfile, err := ioutil.TempFile("/tmp", "rt")
+	tfile, err := ioutil.TempFile("/tmp", "sdb")
 	if err != nil {
 		panic(err)
 	}
@@ -159,7 +160,82 @@ func Test_StandardDownloadBroken(t *testing.T) {
 
 		// Start a local HTTP server
 		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-			time.Sleep(2 * time.Second)
+			time.Sleep(1 * time.Second)
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		// Use Client & URL from our local test server
+		//l := log.New(os.Stderr, "[DEBUG] ", 0)
+		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
+
+		rt, err := New(10, tfile.Name())
+		rt.SetClient(NewRetryClient(3, 10*time.Millisecond, 10*time.Millisecond)) // custom RetryClient with short times
+		So(err, ShouldBeNil)
+
+		req := httptest.NewRequest("GET", server.URL, nil)
+
+		start := time.Now()
+		_, rerr := rt.RoundTrip(req)
+		stop := time.Now()
+		So(rerr, ShouldNotBeNil)
+		So(stop, ShouldHappenWithin, ((3*2+1+1)*10)*time.Millisecond, start)
+
+	})
+
+}
+
+func Test_StandardDownloadBrokenExp(t *testing.T) {
+	tfile, err := ioutil.TempFile("/tmp", "sdbe")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(tfile.Name())
+
+	Convey("When a server is started that doesn't support ranges, and times out, retries happen exponentially, and then errors out", t, func() {
+		//serverBytes := []byte(`OK I have something to say here weeeeee`)
+
+		// Start a local HTTP server
+		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			time.Sleep(1 * time.Second)
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		// Use Client & URL from our local test server
+		//l := log.New(os.Stderr, "[DEBUG] ", 0)
+		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
+
+		rt, err := New(10, tfile.Name())
+		rt.SetClient(NewRetryClientWithExponentialBackoff(3, 10*time.Millisecond, 10*time.Millisecond)) // custom RetryClient with short times
+		So(err, ShouldBeNil)
+
+		req := httptest.NewRequest("GET", server.URL, nil)
+
+		start := time.Now()
+		_, rerr := rt.RoundTrip(req)
+		stop := time.Now()
+		So(rerr, ShouldNotBeNil)
+		So(stop, ShouldHappenWithin, time.Duration(int64(math.Pow(10, 3)))*time.Millisecond, start)
+
+	})
+
+}
+
+func Test_StandardDownload500s(t *testing.T) {
+	tfile, err := ioutil.TempFile("/tmp", "sd5s")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(tfile.Name())
+
+	Convey("When a server is started that doesn't support ranges, and throws 500s, retries happen, and then errors out", t, func() {
+		serverBytes := []byte(`OK I have something to say here weeeeee`)
+
+		// Start a local HTTP server
+		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			rw.WriteHeader(http.StatusInternalServerError)
+			rw.Write(serverBytes)
 		}))
 		// Close the server when test finishes
 		defer server.Close()
