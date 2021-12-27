@@ -5,6 +5,7 @@
 
 * [Overview](#pkg-overview)
 * [Index](#pkg-index)
+* [Examples](#pkg-examples)
 
 ## <a name="pkg-overview">Overview</a>
 Package rangetripper provides a performant http.RoundTripper that handles byte-range downloads if
@@ -29,6 +30,8 @@ N+1 actual downloaders are most likely as the +1 covers any gap from non-even di
   * [func NewRetryClientWithExponentialBackoff(retries int, initially, timeout time.Duration) *RetryClient](#NewRetryClientWithExponentialBackoff)
   * [func (w *RetryClient) Do(req *http.Request) (*http.Response, error)](#RetryClient.Do)
 
+#### <a name="pkg-examples">Examples</a>
+* [RangeTripper](#example-rangetripper)
 
 #### <a name="pkg-files">Package files</a>
 [client.go](https://github.com/cognusion/go-rangetripper/tree/master/client.go) [readall.go](https://github.com/cognusion/go-rangetripper/tree/master/readall.go) [retryclient.go](https://github.com/cognusion/go-rangetripper/tree/master/retryclient.go) [rt.go](https://github.com/cognusion/go-rangetripper/tree/master/rt.go)
@@ -95,6 +98,25 @@ This should not be used in its default state, instead by its New functions.
 A single RangeTripper *must* only be used for one request.
 
 
+
+##### Example RangeTripper:
+``` go
+// Set up a temporary file
+tfile, err := ioutil.TempFile("/tmp", "rt")
+if err != nil {
+    panic(err)
+}
+defer os.Remove(tfile.Name()) // clean up after ourselves
+
+client := new(http.Client)     // make a new Client
+rt, _ := New(10, tfile.Name()) // make a new RangeTripper (errors ignored for brevity. Don't be dumb)
+    client.Transport = rt          // Use the RangeTripper as the Transport
+
+    if _, err := client.Get("https://google.com/"); err != nil {
+        panic(err)
+    }
+    // tfile is the google homepage
+```
 
 
 

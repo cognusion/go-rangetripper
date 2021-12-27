@@ -11,6 +11,25 @@ import (
 	"time"
 )
 
+func ExampleRangeTripper() {
+	// Set up a temporary file
+	tfile, err := ioutil.TempFile("/tmp", "rt")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(tfile.Name()) // clean up after ourselves
+
+	client := new(http.Client)     // make a new Client
+	rt, _ := New(10, tfile.Name()) // make a new RangeTripper (errors ignored for brevity. Don't be dumb)
+	client.Transport = rt          // Use the RangeTripper as the Transport
+
+	if _, err := client.Get("https://google.com/"); err != nil {
+		panic(err)
+	}
+	// tfile is the google homepage
+
+}
+
 func Test_StandardDownload(t *testing.T) {
 	tfile, err := ioutil.TempFile("/tmp", "rt")
 	if err != nil {
