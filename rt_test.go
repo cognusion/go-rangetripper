@@ -256,3 +256,42 @@ func Test_StandardDownload500s(t *testing.T) {
 	})
 
 }
+
+func Test_StandardDownloadSecondRequestFails(t *testing.T) {
+	tfile, err := ioutil.TempFile("/tmp", "sd")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(tfile.Name())
+
+	Convey("When a server is started that doesn't support ranges, RangeTripper downloads the content correctly", t, func() {
+		serverBytes := []byte(`OK I have something to say here weeeeee`)
+
+		// Start a local HTTP server
+		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			rw.Write(serverBytes) // Simple write
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		// Use Client & URL from our local test server
+		//l := log.New(os.Stderr, "[DEBUG] ", 0)
+		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
+
+		rt, err := New(10, tfile.Name())
+		So(err, ShouldBeNil)
+
+		req := httptest.NewRequest("GET", server.URL, nil)
+
+		_, rerr := rt.RoundTrip(req)
+		So(rerr, ShouldBeNil)
+		fileContents, ferr := ioutil.ReadFile(tfile.Name())
+		So(ferr, ShouldBeNil)
+		So(string(fileContents), ShouldEqual, string(serverBytes))
+
+		Convey("... but when a second request is attempted, it fails appropriately", func() {
+			_, rerr := rt.RoundTrip(req)
+			So(rerr, ShouldEqual, SingleRequestExhaustedError)
+		})
+	})
+}

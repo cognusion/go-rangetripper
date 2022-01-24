@@ -21,8 +21,9 @@ import (
 
 // Static errors to return
 const (
-	ContentLengthNumericError  = rtError("Content-Length value cannot be converted to a number")
-	ContentLengthMismatchError = rtError("Downloaded file size does not match content-length")
+	ContentLengthNumericError   = rtError("Content-Length value cannot be converted to a number")
+	ContentLengthMismatchError  = rtError("downloaded file size does not match content-length")
+	SingleRequestExhaustedError = rtError("one request has already been made with this RangeTripper")
 )
 
 var (
@@ -44,11 +45,13 @@ type RangeTripper struct {
 	TimingsOut *log.Logger
 	DebugOut   *log.Logger
 
-	client  Client
-	workers int
-	toFile  string
-	outFile *os.File
-	wg      sync.WaitGroup
+	client    Client
+	workers   int
+	toFile    string
+	outFile   *os.File
+	wg        sync.WaitGroup
+	checkLock sync.Mutex
+	used      bool
 }
 
 // New simply returns a RangeTripper or an error. Logged messages are discarded.
@@ -96,14 +99,23 @@ func (rt *RangeTripper) SetClient(client Client) {
 
 // RoundTrip is called with a formed Request, writing the Body of the response to
 // to the specified output file. The response should largely be ignored, but
-// errors are important.
+// errors are important. Both the request.Body and the RangeTripper.outFile will be
+// closed when theis function returns.
 func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
-
+	// We only allow one execution total, which is gated by the rt.used flag,
+	// but to prevent races, we wrap it in a mutex to ensure proper control
+	rt.checkLock.Lock()
+	defer rt.checkLock.Unlock()
 	defer rt.outFile.Close()
 	defer r.Body.Close()
 
+	if rt.used {
+		return nil, SingleRequestExhaustedError
+	}
+	rt.used = true
+
 	var (
-		res           *http.Response
+		hres          *http.Response
 		err           error
 		contentLength int
 		dlid          = seq.NextHashID()
@@ -112,26 +124,26 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	defer timings.Track(fmt.Sprintf("[%s] RangeTripper Full", dlid), time.Now(), rt.TimingsOut)
 
 	// Error on head? Bail.
-	if res, err = rt.head(r.URL.String()); err != nil {
+	if hres, err = rt.head(r.URL.String()); err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
+	defer hres.Body.Close()
 
 	// No Content-Length? Just grab it like normal :(
-	if len(res.Header["Content-Length"]) < 1 {
+	if len(hres.Header["Content-Length"]) < 1 {
 		if err = rt.fetch(r.URL.String()); err != nil {
 			return nil, err
 		}
-		return res, nil
+		return hres, nil
 	}
 
 	// Non-numeric content-length? Bail.
-	if contentLength, err = strconv.Atoi(res.Header["Content-Length"][0]); err != nil {
-		return nil, fmt.Errorf("[%s] value of Content-Length header appears non-numeric: '%s': %w", dlid, res.Header["Content-Length"][0], ContentLengthNumericError)
+	if contentLength, err = strconv.Atoi(hres.Header["Content-Length"][0]); err != nil {
+		return nil, fmt.Errorf("[%s] value of Content-Length header appears non-numeric: '%s': %w", dlid, hres.Header["Content-Length"][0], ContentLengthNumericError)
 	}
 
 	// Byte ranges accepted? Let's do this
-	if v, ok := res.Header["Accept-Ranges"]; ok && v[0] == "bytes" {
+	if v, ok := hres.Header["Accept-Ranges"]; ok && v[0] == "bytes" {
 		var (
 			start     int
 			end       int
@@ -167,15 +179,15 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		if fileSize := fileStats.Size(); fileSize != int64(contentLength) {
 			return nil, fmt.Errorf("[%s] actual Size: %d expected Size: %d : %w", dlid, fileSize, contentLength, ContentLengthMismatchError)
 		}
-		return res, nil
+		return hres, nil
 	}
-	// else Byte ranges no accepted :(
+	// else Byte ranges not accepted :(
 	rt.DebugOut.Printf("[%s] Range Download unsupported\nBeginning full download...\n", dlid)
 
 	rt.fetch(r.URL.String())
 
 	rt.DebugOut.Printf("[%s] Download Complete\n", dlid)
-	return res, nil
+	return hres, nil
 }
 
 // Do is a satisfier of the rangetripper.Client interface, and is identical to RoundTrip
