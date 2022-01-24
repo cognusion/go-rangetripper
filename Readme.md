@@ -5,7 +5,6 @@
 
 * [Overview](#pkg-overview)
 * [Index](#pkg-index)
-* [Examples](#pkg-examples)
 
 ## <a name="pkg-overview">Overview</a>
 Package rangetripper provides a performant http.RoundTripper that handles byte-range downloads if
@@ -18,7 +17,6 @@ N+1 actual downloaders are most likely as the +1 covers any gap from non-even di
 
 ## <a name="pkg-index">Index</a>
 * [Constants](#pkg-constants)
-* [func ReadAll(r io.Reader) (b []byte, err error)](#ReadAll)
 * [type Client](#Client)
 * [type RangeTripper](#RangeTripper)
   * [func New(parallelDownloads int, outputFilePath string) (*RangeTripper, error)](#New)
@@ -31,31 +29,21 @@ N+1 actual downloaders are most likely as the +1 covers any gap from non-even di
   * [func NewRetryClientWithExponentialBackoff(retries int, initially, timeout time.Duration) *RetryClient](#NewRetryClientWithExponentialBackoff)
   * [func (w *RetryClient) Do(req *http.Request) (*http.Response, error)](#RetryClient.Do)
 
-#### <a name="pkg-examples">Examples</a>
-* [RangeTripper](#example-rangetripper)
 
 #### <a name="pkg-files">Package files</a>
-[client.go](https://github.com/cognusion/go-rangetripper/tree/master/client.go) [readall.go](https://github.com/cognusion/go-rangetripper/tree/master/readall.go) [retryclient.go](https://github.com/cognusion/go-rangetripper/tree/master/retryclient.go) [rt.go](https://github.com/cognusion/go-rangetripper/tree/master/rt.go)
+[client.go](https://github.com/cognusion/go-rangetripper/tree/master/client.go) [retryclient.go](https://github.com/cognusion/go-rangetripper/tree/master/retryclient.go) [rt.go](https://github.com/cognusion/go-rangetripper/tree/master/rt.go)
 
 
 ## <a name="pkg-constants">Constants</a>
 ``` go
 const (
-    ContentLengthNumericError  = rtError("Content-Length value cannot be converted to a number")
-    ContentLengthMismatchError = rtError("Downloaded file size does not match content-length")
+    ContentLengthNumericError   = rtError("Content-Length value cannot be converted to a number")
+    ContentLengthMismatchError  = rtError("downloaded file size does not match content-length")
+    SingleRequestExhaustedError = rtError("one request has already been made with this RangeTripper")
 )
 ```
 Static errors to return
 
-
-
-
-## <a name="ReadAll">func</a> [ReadAll](https://github.com/cognusion/go-rangetripper/tree/master/readall.go?s=349:396#L23)
-``` go
-func ReadAll(r io.Reader) (b []byte, err error)
-```
-ReadAll is a custom version of io/ioutil.ReadAll() that uses a sync.Pool of bytes.Buffer to rock the reading,
-with Zero allocs and 7x better performance
 
 
 
@@ -85,7 +73,7 @@ to a RangeTripper, or :mindblown:. DefaultClient can be a lowly http.Client if y
 
 
 
-## <a name="RangeTripper">type</a> [RangeTripper](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1223:1387#L43)
+## <a name="RangeTripper">type</a> [RangeTripper](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1370:1582#L45)
 ``` go
 type RangeTripper struct {
     TimingsOut *log.Logger
@@ -100,37 +88,18 @@ A single RangeTripper *must* only be used for one request.
 
 
 
-##### Example RangeTripper:
-``` go
-// Set up a temporary file
-tfile, err := ioutil.TempFile("/tmp", "rt")
-if err != nil {
-    panic(err)
-}
-defer os.Remove(tfile.Name()) // clean up after ourselves
-
-client := new(http.Client)     // make a new Client
-rt, _ := New(10, tfile.Name()) // make a new RangeTripper (errors ignored for brevity. Don't be dumb)
-    client.Transport = rt          // Use the RangeTripper as the Transport
-
-    if _, err := client.Get("https://google.com/"); err != nil {
-        panic(err)
-    }
-    // tfile is the google homepage
-```
 
 
 
 
-
-### <a name="New">func</a> [New](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1470:1547#L55)
+### <a name="New">func</a> [New](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1665:1742#L59)
 ``` go
 func New(parallelDownloads int, outputFilePath string) (*RangeTripper, error)
 ```
 New simply returns a RangeTripper or an error. Logged messages are discarded.
 
 
-### <a name="NewWithLoggers">func</a> [NewWithLoggers](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1746:1873#L60)
+### <a name="NewWithLoggers">func</a> [NewWithLoggers](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1941:2068#L64)
 ``` go
 func NewWithLoggers(parallelDownloads int, outputFilePath string, timingLogger, debugLogger *log.Logger) (*RangeTripper, error)
 ```
@@ -140,7 +109,7 @@ NewWithLoggers returns a RangeTripper or an error. Logged messages are sent to t
 
 
 
-### <a name="RangeTripper.Do">func</a> (\*RangeTripper) [Do](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=5373:5440#L182)
+### <a name="RangeTripper.Do">func</a> (\*RangeTripper) [Do](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=5949:6016#L195)
 ``` go
 func (rt *RangeTripper) Do(r *http.Request) (*http.Response, error)
 ```
@@ -149,18 +118,19 @@ Do is a satisfier of the rangetripper.Client interface, and is identical to Roun
 
 
 
-### <a name="RangeTripper.RoundTrip">func</a> (\*RangeTripper) [RoundTrip](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=2789:2863#L100)
+### <a name="RangeTripper.RoundTrip">func</a> (\*RangeTripper) [RoundTrip](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=3082:3156#L105)
 ``` go
 func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error)
 ```
 RoundTrip is called with a formed Request, writing the Body of the response to
 to the specified output file. The response should largely be ignored, but
-errors are important.
+errors are important. Both the request.Body and the RangeTripper.outFile will be
+closed when theis function returns.
 
 
 
 
-### <a name="RangeTripper.SetClient">func</a> (\*RangeTripper) [SetClient](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=2531:2579#L93)
+### <a name="RangeTripper.SetClient">func</a> (\*RangeTripper) [SetClient](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=2726:2774#L97)
 ``` go
 func (rt *RangeTripper) SetClient(client Client)
 ```

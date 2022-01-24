@@ -7,6 +7,7 @@ package rangetripper
 import (
 	"github.com/cognusion/go-sequence"
 	"github.com/cognusion/go-timings"
+	utils "github.com/cognusion/go-utils/ioutil"
 
 	"fmt"
 	"io"
@@ -262,7 +263,7 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 	defer res.Body.Close()
 
 	// Read the chunk into a buffer, and then write it to the outfile at the appropriate offset
-	if ra, err := ReadAll(res.Body); err != nil {
+	if ra, err := utils.ReadAll(res.Body); err != nil {
 		rt.DebugOut.Printf("Error during ReadAll byte %d: %s\n", start, err)
 		return err
 	} else if _, err := rt.outFile.WriteAt(ra, start); err != nil {
