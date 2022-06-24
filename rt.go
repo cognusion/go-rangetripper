@@ -49,7 +49,6 @@ type RangeTripper struct {
 
 	client    Client
 	workers   int
-	max       int
 	toFile    string
 	outFile   *os.File
 	wg        sync.WaitGroup
@@ -90,7 +89,6 @@ func NewWithLoggers(parallelDownloads int, outputFilePath string, timingLogger, 
 		TimingsOut: timingLogger,
 		DebugOut:   debugLogger,
 		workers:    parallelDownloads,
-		max:        parallelDownloads + 1,
 		toFile:     outputFilePath,
 		outFile:    outFile,
 		client:     DefaultClient,
@@ -111,7 +109,6 @@ func (rt *RangeTripper) SetMax(max int) {
 		max = rt.workers + 1
 	}
 
-	rt.max = max
 	rt.sem = semaphore.NewSemaphore(max)
 }
 
@@ -148,6 +145,10 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	defer hres.Body.Close()
+
+	if hres.StatusCode != 200 {
+		return nil, fmt.Errorf("error during HEAD: %d / %s", hres.StatusCode, hres.Status)
+	}
 
 	// No Content-Length? Just grab it like normal :(
 	if len(hres.Header["Content-Length"]) < 1 {

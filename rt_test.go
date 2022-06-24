@@ -148,6 +148,38 @@ func Test_RangeDownload(t *testing.T) {
 
 }
 
+func Test_HEAD403(t *testing.T) {
+	tfile, err := ioutil.TempFile("/tmp", "sdhc")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(tfile.Name())
+
+	Convey("When a server returns a 403, it is handled correctly", t, func() {
+
+		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			rw.WriteHeader(http.StatusForbidden)
+			rw.Write([]byte(`FORBIDDEN`)) // Simple write
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		// Use Client & URL from our local test server
+		//l := log.New(os.Stderr, "[DEBUG] ", 0)
+		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
+
+		rt, err := New(10, tfile.Name())
+		rt.SetClient(new(http.Client)) // use a normal http.Client
+		So(err, ShouldBeNil)
+
+		req := httptest.NewRequest("GET", server.URL, nil)
+
+		_, rerr := rt.RoundTrip(req)
+		So(rerr, ShouldNotBeNil)
+	})
+
+}
+
 func Test_StandardDownloadBroken(t *testing.T) {
 	tfile, err := ioutil.TempFile("/tmp", "sdb")
 	if err != nil {
