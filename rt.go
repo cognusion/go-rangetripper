@@ -112,6 +112,7 @@ func (rt *RangeTripper) SetMax(max int) {
 	}
 
 	rt.max = max
+	rt.sem = semaphore.NewSemaphore(max)
 }
 
 // RoundTrip is called with a formed Request, writing the Body of the response to
