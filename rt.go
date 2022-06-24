@@ -108,7 +108,9 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	rt.checkLock.Lock()
 	defer rt.checkLock.Unlock()
 	defer rt.outFile.Close()
-	defer r.Body.Close()
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 
 	if rt.used {
 		return nil, SingleRequestExhaustedError
