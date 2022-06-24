@@ -5,7 +5,6 @@
 
 * [Overview](#pkg-overview)
 * [Index](#pkg-index)
-* [Examples](#pkg-examples)
 
 ## <a name="pkg-overview">Overview</a>
 Package rangetripper provides a performant http.RoundTripper that handles byte-range downloads if
@@ -25,13 +24,12 @@ N+1 actual downloaders are most likely as the +1 covers any gap from non-even di
   * [func (rt *RangeTripper) Do(r *http.Request) (*http.Response, error)](#RangeTripper.Do)
   * [func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error)](#RangeTripper.RoundTrip)
   * [func (rt *RangeTripper) SetClient(client Client)](#RangeTripper.SetClient)
+  * [func (rt *RangeTripper) SetMax(max int)](#RangeTripper.SetMax)
 * [type RetryClient](#RetryClient)
   * [func NewRetryClient(retries int, every, timeout time.Duration) *RetryClient](#NewRetryClient)
   * [func NewRetryClientWithExponentialBackoff(retries int, initially, timeout time.Duration) *RetryClient](#NewRetryClientWithExponentialBackoff)
   * [func (w *RetryClient) Do(req *http.Request) (*http.Response, error)](#RetryClient.Do)
 
-#### <a name="pkg-examples">Examples</a>
-* [RangeTripper](#example-rangetripper)
 
 #### <a name="pkg-files">Package files</a>
 [client.go](https://github.com/cognusion/go-rangetripper/tree/master/client.go) [retryclient.go](https://github.com/cognusion/go-rangetripper/tree/master/retryclient.go) [rt.go](https://github.com/cognusion/go-rangetripper/tree/master/rt.go)
@@ -76,7 +74,7 @@ to a RangeTripper, or :mindblown:. DefaultClient can be a lowly http.Client if y
 
 
 
-## <a name="RangeTripper">type</a> [RangeTripper](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1370:1582#L45)
+## <a name="RangeTripper">type</a> [RangeTripper](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1404:1662#L46)
 ``` go
 type RangeTripper struct {
     TimingsOut *log.Logger
@@ -91,37 +89,18 @@ A single RangeTripper *must* only be used for one request.
 
 
 
-##### Example RangeTripper:
-``` go
-// Set up a temporary file
-tfile, err := ioutil.TempFile("/tmp", "rt")
-if err != nil {
-    panic(err)
-}
-defer os.Remove(tfile.Name()) // clean up after ourselves
-
-client := new(http.Client)     // make a new Client
-rt, _ := New(10, tfile.Name()) // make a new RangeTripper (errors ignored for brevity. Don't be dumb)
-    client.Transport = rt          // Use the RangeTripper as the Transport
-
-    if _, err := client.Get("https://google.com/"); err != nil {
-        panic(err)
-    }
-    // tfile is the google homepage
-```
 
 
 
 
-
-### <a name="New">func</a> [New](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1665:1742#L59)
+### <a name="New">func</a> [New](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1745:1822#L62)
 ``` go
 func New(parallelDownloads int, outputFilePath string) (*RangeTripper, error)
 ```
 New simply returns a RangeTripper or an error. Logged messages are discarded.
 
 
-### <a name="NewWithLoggers">func</a> [NewWithLoggers](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1941:2068#L64)
+### <a name="NewWithLoggers">func</a> [NewWithLoggers](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=2021:2148#L67)
 ``` go
 func NewWithLoggers(parallelDownloads int, outputFilePath string, timingLogger, debugLogger *log.Logger) (*RangeTripper, error)
 ```
@@ -131,7 +110,7 @@ NewWithLoggers returns a RangeTripper or an error. Logged messages are sent to t
 
 
 
-### <a name="RangeTripper.Do">func</a> (\*RangeTripper) [Do](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=5949:6016#L195)
+### <a name="RangeTripper.Do">func</a> (\*RangeTripper) [Do](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=6392:6459#L215)
 ``` go
 func (rt *RangeTripper) Do(r *http.Request) (*http.Response, error)
 ```
@@ -140,7 +119,7 @@ Do is a satisfier of the rangetripper.Client interface, and is identical to Roun
 
 
 
-### <a name="RangeTripper.RoundTrip">func</a> (\*RangeTripper) [RoundTrip](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=3082:3156#L105)
+### <a name="RangeTripper.RoundTrip">func</a> (\*RangeTripper) [RoundTrip](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=3467:3541#L121)
 ``` go
 func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error)
 ```
@@ -152,11 +131,20 @@ closed when theis function returns.
 
 
 
-### <a name="RangeTripper.SetClient">func</a> (\*RangeTripper) [SetClient](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=2726:2774#L97)
+### <a name="RangeTripper.SetClient">func</a> (\*RangeTripper) [SetClient](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=2904:2952#L102)
 ``` go
 func (rt *RangeTripper) SetClient(client Client)
 ```
 SetClient allows for overriding the Client used to make the requests.
+
+
+
+
+### <a name="RangeTripper.SetMax">func</a> (\*RangeTripper) [SetMax](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=3045:3084#L107)
+``` go
+func (rt *RangeTripper) SetMax(max int)
+```
+SetMax allows for setting the maximum number of running workers
 
 
 

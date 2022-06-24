@@ -8,6 +8,7 @@ import (
 	"github.com/cognusion/go-sequence"
 	"github.com/cognusion/go-timings"
 	utils "github.com/cognusion/go-utils/ioutil"
+	"github.com/cognusion/semaphore"
 
 	"fmt"
 	"io"
@@ -48,10 +49,12 @@ type RangeTripper struct {
 
 	client    Client
 	workers   int
+	max       int
 	toFile    string
 	outFile   *os.File
 	wg        sync.WaitGroup
 	checkLock sync.Mutex
+	sem       semaphore.Semaphore
 	used      bool
 }
 
@@ -87,15 +90,28 @@ func NewWithLoggers(parallelDownloads int, outputFilePath string, timingLogger, 
 		TimingsOut: timingLogger,
 		DebugOut:   debugLogger,
 		workers:    parallelDownloads,
+		max:        parallelDownloads + 1,
 		toFile:     outputFilePath,
 		outFile:    outFile,
 		client:     DefaultClient,
+		sem:        semaphore.NewSemaphore(parallelDownloads + 1),
 	}, nil
 }
 
 // SetClient allows for overriding the Client used to make the requests.
 func (rt *RangeTripper) SetClient(client Client) {
 	rt.client = client
+}
+
+// SetMax allows for setting the maximum number of running workers
+func (rt *RangeTripper) SetMax(max int) {
+	if max == 0 {
+		return
+	} else if max > rt.workers {
+		max = rt.workers + 1
+	}
+
+	rt.max = max
 }
 
 // RoundTrip is called with a formed Request, writing the Body of the response to
@@ -156,6 +172,7 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		rt.DebugOut.Printf("[%s] Ranges supported! Content Length: %d, Downloaders: %d, Chunk Size %d\n", dlid, contentLength, rt.workers, chunkSize)
 
 		for i := 0; i < rt.workers; i++ {
+			rt.sem.Lock()
 			rt.wg.Add(1)
 			end = start + int(chunkSize)
 			rt.DebugOut.Printf("\t[%s] Worker from %d to %d\n", dlid, start, end)
@@ -164,6 +181,7 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		if end < contentLength {
 			// gap
+			rt.sem.Lock()
 			rt.wg.Add(1)
 			start = end
 			end = contentLength
@@ -252,6 +270,7 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 		err error
 	)
 
+	defer rt.sem.Unlock()
 	defer rt.wg.Done()
 
 	if req, err = http.NewRequest("GET", url, nil); err != nil {
