@@ -184,6 +184,7 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		if rt.usePB {
 			tmpl := `{{string . "prefix"}}{{counters . }} {{bar . }} {{percent . }} {{rtime . "ETA %s"}}{{string . "suffix"}}`
 			rt.bar = pb.ProgressBarTemplate(tmpl).New(contentLength)
+			rt.bar.Start()
 			defer rt.bar.Finish()
 		}
 		for i := 0; i < rt.workers; i++ {
