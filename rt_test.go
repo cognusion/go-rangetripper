@@ -117,8 +117,8 @@ func Test_RangeDownload(t *testing.T) {
 	}
 	defer os.Remove(tfile2.Name())
 
-	Convey("When a server is started that supports ranges, RangeTripper downloads the content correctly", t, func() {
-		serverBytes := []byte(`OK I have something to say here weeeeee`)
+	Convey("When a server is started that supports ranges, RangeTripper downloads the content correctly", t, func(c C) {
+		serverBytes := []byte(`OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee`)
 		werr := ioutil.WriteFile(tfile2.Name(), serverBytes, 0)
 		So(werr, ShouldBeNil)
 
@@ -129,16 +129,34 @@ func Test_RangeDownload(t *testing.T) {
 		// Close the server when test finishes
 		defer server.Close()
 
-		// Use Client & URL from our local test server
-		//l := log.New(os.Stderr, "[DEBUG] ", 0)
-		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
-
 		rt, err := New(10, tfile.Name())
 		So(err, ShouldBeNil)
 
 		req := httptest.NewRequest("GET", server.URL, nil)
 
-		_, rerr := rt.RoundTrip(req)
+		// Check the progress
+		done := make(chan interface{})
+		progress := rt.WithProgress()
+		go func(x C, p <-chan int64) {
+
+			contentLength := <-p // first item is the contentLength
+			var count int64
+			for {
+				select {
+				case <-done:
+					//x.Printf("\nSo %d ShouldEqual %d\n", count, contentLength)
+					x.So(count, ShouldEqual, contentLength)
+					return
+				case b := <-p:
+					count += b
+				}
+			}
+
+		}(c, progress)
+
+		_, rerr := rt.RoundTrip(req) // Run the request
+		close(done)                  // Close the done chan
+
 		So(rerr, ShouldBeNil)
 		fileContents, ferr := ioutil.ReadFile(tfile.Name())
 		So(ferr, ShouldBeNil)

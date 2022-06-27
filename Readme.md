@@ -25,7 +25,7 @@ N+1 actual downloaders are most likely as the +1 covers any gap from non-even di
   * [func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error)](#RangeTripper.RoundTrip)
   * [func (rt *RangeTripper) SetClient(client Client)](#RangeTripper.SetClient)
   * [func (rt *RangeTripper) SetMax(max int)](#RangeTripper.SetMax)
-  * [func (rt *RangeTripper) UsePB(use bool)](#RangeTripper.UsePB)
+  * [func (rt *RangeTripper) WithProgress() &lt;-chan int64](#RangeTripper.WithProgress)
 * [type RetryClient](#RetryClient)
   * [func NewRetryClient(retries int, every, timeout time.Duration) *RetryClient](#NewRetryClient)
   * [func NewRetryClientWithExponentialBackoff(retries int, initially, timeout time.Duration) *RetryClient](#NewRetryClientWithExponentialBackoff)
@@ -75,7 +75,7 @@ to a RangeTripper, or :mindblown:. DefaultClient can be a lowly http.Client if y
 
 
 
-## <a name="RangeTripper">type</a> [RangeTripper](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1434:1720#L48)
+## <a name="RangeTripper">type</a> [RangeTripper](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1404:1669#L46)
 ``` go
 type RangeTripper struct {
     TimingsOut *log.Logger
@@ -94,14 +94,14 @@ A single RangeTripper *must* only be used for one request.
 
 
 
-### <a name="New">func</a> [New](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1803:1880#L65)
+### <a name="New">func</a> [New](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1752:1829#L62)
 ``` go
 func New(parallelDownloads int, outputFilePath string) (*RangeTripper, error)
 ```
 New simply returns a RangeTripper or an error. Logged messages are discarded.
 
 
-### <a name="NewWithLoggers">func</a> [NewWithLoggers](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=2079:2206#L70)
+### <a name="NewWithLoggers">func</a> [NewWithLoggers](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=2028:2155#L67)
 ``` go
 func NewWithLoggers(parallelDownloads int, outputFilePath string, timingLogger, debugLogger *log.Logger) (*RangeTripper, error)
 ```
@@ -111,7 +111,7 @@ NewWithLoggers returns a RangeTripper or an error. Logged messages are sent to t
 
 
 
-### <a name="RangeTripper.Do">func</a> (\*RangeTripper) [Do](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=6884:6951#L230)
+### <a name="RangeTripper.Do">func</a> (\*RangeTripper) [Do](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=6876:6943#L231)
 ``` go
 func (rt *RangeTripper) Do(r *http.Request) (*http.Response, error)
 ```
@@ -120,7 +120,7 @@ Do is a satisfier of the rangetripper.Client interface, and is identical to Roun
 
 
 
-### <a name="RangeTripper.RoundTrip">func</a> (\*RangeTripper) [RoundTrip](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=3619:3693#L128)
+### <a name="RangeTripper.RoundTrip">func</a> (\*RangeTripper) [RoundTrip](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=3763:3837#L129)
 ``` go
 func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error)
 ```
@@ -132,7 +132,7 @@ closed when theis function returns.
 
 
 
-### <a name="RangeTripper.SetClient">func</a> (\*RangeTripper) [SetClient](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=2925:2973#L104)
+### <a name="RangeTripper.SetClient">func</a> (\*RangeTripper) [SetClient](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=2874:2922#L101)
 ``` go
 func (rt *RangeTripper) SetClient(client Client)
 ```
@@ -141,7 +141,7 @@ SetClient allows for overriding the Client used to make the requests.
 
 
 
-### <a name="RangeTripper.SetMax">func</a> (\*RangeTripper) [SetMax](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=3066:3105#L109)
+### <a name="RangeTripper.SetMax">func</a> (\*RangeTripper) [SetMax](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=3015:3054#L106)
 ``` go
 func (rt *RangeTripper) SetMax(max int)
 ```
@@ -150,11 +150,12 @@ SetMax allows for setting the maximum number of running workers
 
 
 
-### <a name="RangeTripper.UsePB">func</a> (\*RangeTripper) [UsePB](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=3276:3315#L120)
+### <a name="RangeTripper.WithProgress">func</a> (\*RangeTripper) [WithProgress](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=3338:3389#L118)
 ``` go
-func (rt *RangeTripper) UsePB(use bool)
+func (rt *RangeTripper) WithProgress() <-chan int64
 ```
-UsePB enables the output of a progress bar
+WithProgress returns a read-only chan that will first provide the total length of the content (in bytes),
+followed by a stream of completed byte-lengths
 
 
 

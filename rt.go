@@ -10,8 +10,6 @@ import (
 	utils "github.com/cognusion/go-utils/ioutil"
 	"github.com/cognusion/semaphore"
 
-	"github.com/cheggaaa/pb/v3"
-
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -56,8 +54,7 @@ type RangeTripper struct {
 	wg        sync.WaitGroup
 	checkLock sync.Mutex
 	sem       semaphore.Semaphore
-	bar       *pb.ProgressBar
-	usePB     bool
+	progress  chan int64
 	used      bool
 }
 
@@ -116,9 +113,13 @@ func (rt *RangeTripper) SetMax(max int) {
 	rt.sem = semaphore.NewSemaphore(max)
 }
 
-// UsePB enables the output of a progress bar
-func (rt *RangeTripper) UsePB(use bool) {
-	rt.usePB = use
+// WithProgress returns a read-only chan that will first provide the total length of the content (in bytes),
+// followed by a stream of completed byte-lengths
+func (rt *RangeTripper) WithProgress() <-chan int64 {
+	if rt.progress == nil {
+		rt.progress = make(chan int64, 100)
+	}
+	return rt.progress
 }
 
 // RoundTrip is called with a formed Request, writing the Body of the response to
@@ -180,14 +181,12 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 			chunkSize = int(contentLength / rt.workers)
 		)
 
-		rt.DebugOut.Printf("[%s] Ranges supported! Content Length: %d, Downloaders: %d, Chunk Size %d\n", dlid, contentLength, rt.workers, chunkSize)
-		if rt.usePB {
-			//tmpl := `{{string . "prefix"}}{{counters . }} {{bar . }} {{percent . }} {{rtime . "ETA %s"}}{{string . "suffix"}}`
-			rt.bar = pb.New(contentLength)
-			rt.bar.Set(pb.Bytes, true)
-			rt.bar.Start()
-			defer rt.bar.Finish()
+		if rt.progress != nil {
+			rt.progress <- int64(contentLength)
 		}
+
+		rt.DebugOut.Printf("[%s] Ranges supported! Content Length: %d, Downloaders: %d, Chunk Size %d\n", dlid, contentLength, rt.workers, chunkSize)
+
 		for i := 0; i < rt.workers; i++ {
 			rt.sem.Lock()
 			rt.wg.Add(1)
@@ -286,8 +285,9 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 		res *http.Response
 		err error
 	)
-	if rt.bar != nil {
-		defer rt.bar.Add64(end - start)
+
+	if rt.progress != nil {
+		defer func() { rt.progress <- end - start }()
 	}
 
 	defer rt.sem.Unlock()
