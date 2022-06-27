@@ -10,6 +10,8 @@ import (
 	utils "github.com/cognusion/go-utils/ioutil"
 	"github.com/cognusion/semaphore"
 
+	"github.com/cheggaaa/pb/v3"
+
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -54,6 +56,8 @@ type RangeTripper struct {
 	wg        sync.WaitGroup
 	checkLock sync.Mutex
 	sem       semaphore.Semaphore
+	bar       *pb.ProgressBar
+	usePB     bool
 	used      bool
 }
 
@@ -110,6 +114,11 @@ func (rt *RangeTripper) SetMax(max int) {
 	}
 
 	rt.sem = semaphore.NewSemaphore(max)
+}
+
+// UsePB enables the output of a progress bar
+func (rt *RangeTripper) UsePB(use bool) {
+	rt.usePB = use
 }
 
 // RoundTrip is called with a formed Request, writing the Body of the response to
@@ -172,7 +181,11 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		)
 
 		rt.DebugOut.Printf("[%s] Ranges supported! Content Length: %d, Downloaders: %d, Chunk Size %d\n", dlid, contentLength, rt.workers, chunkSize)
-
+		if rt.usePB {
+			tmpl := `{{string . "prefix"}}{{counters . }} {{bar . }} {{percent . }} {{rtime . "ETA %s"}}{{string . "suffix"}}`
+			rt.bar = pb.ProgressBarTemplate(tmpl).New(contentLength)
+			defer rt.bar.Finish()
+		}
 		for i := 0; i < rt.workers; i++ {
 			rt.sem.Lock()
 			rt.wg.Add(1)
@@ -271,6 +284,9 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 		res *http.Response
 		err error
 	)
+	if rt.bar != nil {
+		defer rt.bar.Add64(end - start)
+	}
 
 	defer rt.sem.Unlock()
 	defer rt.wg.Done()
