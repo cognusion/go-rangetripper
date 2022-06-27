@@ -182,8 +182,9 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 
 		rt.DebugOut.Printf("[%s] Ranges supported! Content Length: %d, Downloaders: %d, Chunk Size %d\n", dlid, contentLength, rt.workers, chunkSize)
 		if rt.usePB {
-			tmpl := `{{string . "prefix"}}{{counters . }} {{bar . }} {{percent . }} {{rtime . "ETA %s"}}{{string . "suffix"}}`
-			rt.bar = pb.ProgressBarTemplate(tmpl).New(contentLength)
+			//tmpl := `{{string . "prefix"}}{{counters . }} {{bar . }} {{percent . }} {{rtime . "ETA %s"}}{{string . "suffix"}}`
+			rt.bar = pb.New(contentLength)
+			rt.bar.Set(pb.Bytes, true)
 			rt.bar.Start()
 			defer rt.bar.Finish()
 		}
