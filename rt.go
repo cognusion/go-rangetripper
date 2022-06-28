@@ -1,6 +1,6 @@
 // Package rangetripper provides a performant http.RoundTripper that handles byte-range downloads if
 // the resulting HTTP server claims to support them in a HEAD request for the file. RangeTripper will
-// download 1/Nth of the file asynchronously with each of the ``parallelDownloads`` specified in a New.
+// download 1/Nth of the file asynchronously with each of the ``fileChunks`` specified in a New.
 // N+1 actual downloaders are most likely as the +1 covers any gap from non-even division of content-length.
 package rangetripper
 
@@ -61,12 +61,12 @@ type RangeTripper struct {
 }
 
 // New simply returns a RangeTripper or an error. Logged messages are discarded.
-func New(parallelDownloads int, outputFilePath string) (*RangeTripper, error) {
-	return NewWithLoggers(parallelDownloads, outputFilePath, nil, nil)
+func New(fileChunks int, outputFilePath string) (*RangeTripper, error) {
+	return NewWithLoggers(fileChunks, outputFilePath, nil, nil)
 }
 
 // NewWithLoggers returns a RangeTripper or an error. Logged messages are sent to the specified Logger, or discarded if nil.
-func NewWithLoggers(parallelDownloads int, outputFilePath string, timingLogger, debugLogger *log.Logger) (*RangeTripper, error) {
+func NewWithLoggers(fileChunks int, outputFilePath string, timingLogger, debugLogger *log.Logger) (*RangeTripper, error) {
 	// Validate file to write to, early
 	outFile, err := os.Create(outputFilePath)
 	if err != nil {
@@ -74,8 +74,8 @@ func NewWithLoggers(parallelDownloads int, outputFilePath string, timingLogger, 
 	}
 
 	// sanity
-	if parallelDownloads < 1 {
-		parallelDownloads = 1
+	if fileChunks < 1 {
+		fileChunks = 1
 	}
 
 	// Discard if nil
@@ -91,11 +91,11 @@ func NewWithLoggers(parallelDownloads int, outputFilePath string, timingLogger, 
 	return &RangeTripper{
 		TimingsOut: timingLogger,
 		DebugOut:   debugLogger,
-		workers:    parallelDownloads,
+		workers:    fileChunks,
 		toFile:     outputFilePath,
 		outFile:    outFile,
 		client:     DefaultClient,
-		sem:        semaphore.NewSemaphore(parallelDownloads + 1),
+		sem:        semaphore.NewSemaphore(fileChunks + 1),
 	}, nil
 }
 
@@ -104,7 +104,7 @@ func (rt *RangeTripper) SetClient(client Client) {
 	rt.client = client
 }
 
-// SetMax allows for setting the maximum number of running workers
+// SetMax allows for setting the maximum number of concurrently-running workers
 func (rt *RangeTripper) SetMax(max int) {
 	if max == 0 {
 		return
@@ -116,7 +116,8 @@ func (rt *RangeTripper) SetMax(max int) {
 }
 
 // WithProgress returns a read-only chan that will first provide the total length of the content (in bytes),
-// followed by a stream of completed byte-lengths
+// followed by a stream of completed byte-lengths. CAUTION: It is a generally bad idea to call this and then
+// ignore the resulting channel.
 func (rt *RangeTripper) WithProgress() <-chan int64 {
 	if rt.progress == nil {
 		rt.progress = make(chan int64, 100)
@@ -124,10 +125,10 @@ func (rt *RangeTripper) WithProgress() <-chan int64 {
 	return rt.progress
 }
 
-// RoundTrip is called with a formed Request, writing the Body of the response to
-// to the specified output file. The response should largely be ignored, but
-// errors are important. Both the request.Body and the RangeTripper.outFile will be
-// closed when theis function returns.
+// RoundTrip is called with a formed Request, writing the Body of the Response to
+// to the specified output file. The Response should be ignored, but
+// errors are important. Both the Request.Body and the RangeTripper.outFile will be
+// closed when this function returns.
 func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	// We only allow one execution total, which is gated by the rt.used flag,
 	// but to prevent races, we wrap it in a mutex to ensure proper control
@@ -316,10 +317,12 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 		}
 	}()
 
+	// Create a simple GET request
 	if req, err = http.NewRequest("GET", url, nil); err != nil {
 		return err
 	}
 
+	// Add the Range header with our details
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end-1))
 	if res, err = rt.client.Do(req); err != nil {
 		return err
