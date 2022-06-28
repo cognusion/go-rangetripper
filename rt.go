@@ -309,11 +309,11 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 
 	// SHOULD BE LAST of the compulsory defers, so is the first to exec before there are unlocks, etc.
 	// If an error occurs, stuff the value. We know that there will be overwrites, and that is ok
-	defer func(e error) {
-		if e != nil {
-			rt.fetchError.Store(e)
+	defer func() {
+		if err != nil {
+			rt.fetchError.Store(err)
 		}
-	}(err)
+	}()
 
 	if req, err = http.NewRequest("GET", url, nil); err != nil {
 		return err
