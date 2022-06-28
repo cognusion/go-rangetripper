@@ -306,6 +306,7 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 
 	defer rt.sem.Unlock()
 	defer rt.wg.Done()
+	defer timings.Track(fmt.Sprintf("\tfetchChunk %d - %d", start, end), time.Now(), rt.TimingsOut)
 
 	// SHOULD BE LAST of the compulsory defers, so is the first to exec before there are unlocks, etc.
 	// If an error occurs, stuff the value. We know that there will be overwrites, and that is ok
