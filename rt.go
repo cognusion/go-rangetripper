@@ -326,10 +326,11 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 	defer res.Body.Close()
 
 	// Read the chunk into a buffer, and then write it to the outfile at the appropriate offset
-	if ra, err := utils.ReadAll(res.Body); err != nil {
+	var ra []byte
+	if ra, err = utils.ReadAll(res.Body); err != nil {
 		rt.DebugOut.Printf("Error during ReadAll byte %d: %s\n", start, err)
 		return err
-	} else if _, err := rt.outFile.WriteAt(ra, start); err != nil {
+	} else if _, err = rt.outFile.WriteAt(ra, start); err != nil {
 		rt.DebugOut.Printf("Error during writing byte %d: %s\n", start, err)
 		return err
 	}
