@@ -9,6 +9,7 @@ require (
 	github.com/cognusion/semaphore v1.2.0
 	github.com/eapache/go-resiliency v1.2.0
 	github.com/smartystreets/goconvey v1.7.2
+	go.uber.org/atomic v1.9.0
 )
 
 require (

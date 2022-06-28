@@ -9,6 +9,7 @@ import (
 	"github.com/cognusion/go-timings"
 	utils "github.com/cognusion/go-utils/ioutil"
 	"github.com/cognusion/semaphore"
+	"go.uber.org/atomic"
 
 	"fmt"
 	"io"
@@ -47,15 +48,16 @@ type RangeTripper struct {
 	TimingsOut *log.Logger
 	DebugOut   *log.Logger
 
-	client    Client
-	workers   int
-	toFile    string
-	outFile   *os.File
-	wg        sync.WaitGroup
-	checkLock sync.Mutex
-	sem       semaphore.Semaphore
-	progress  chan int64
-	used      bool
+	client     Client
+	workers    int
+	toFile     string
+	outFile    *os.File
+	wg         sync.WaitGroup
+	checkLock  sync.Mutex
+	sem        semaphore.Semaphore
+	progress   chan int64
+	used       bool
+	fetchError atomic.Error
 }
 
 // New simply returns a RangeTripper or an error. Logged messages are discarded.
@@ -189,6 +191,12 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 
 		for i := 0; i < rt.workers; i++ {
 			rt.sem.Lock()
+			if ferr := rt.fetchError.Load(); ferr != nil {
+				// We've had an error, bail
+				rt.DebugOut.Printf("\t[%s] Error %v encountered while spawning workers, aborting at %d\n", dlid, ferr, start)
+				return nil, ferr
+			}
+
 			rt.wg.Add(1)
 			end = start + int(chunkSize)
 			rt.DebugOut.Printf("\t[%s] Worker from %d to %d\n", dlid, start, end)
@@ -205,6 +213,12 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 			go rt.fetchChunk(int64(start), int64(end), r.URL.String())
 		}
 		rt.wg.Wait() // wrap in a timer?
+
+		if ferr := rt.fetchError.Load(); ferr != nil {
+			// We've had an error, bail
+			rt.DebugOut.Printf("[%s] Error %v encountered after all workers spawned, aborting\n", dlid, ferr)
+			return nil, ferr
+		}
 
 		rt.DebugOut.Printf("[%s] complete\n", dlid)
 		defer timings.Track(fmt.Sprintf("[%s] RangeTripper Assembled", dlid), time.Now(), rt.TimingsOut)
@@ -292,6 +306,14 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 
 	defer rt.sem.Unlock()
 	defer rt.wg.Done()
+
+	// SHOULD BE LAST of the compulsory defers, so is the first to exec before there are unlocks, etc.
+	// If an error occurs, stuff the value. We know that there will be overwrites, and that is ok
+	defer func(e error) {
+		if e != nil {
+			rt.fetchError.Store(e)
+		}
+	}(err)
 
 	if req, err = http.NewRequest("GET", url, nil); err != nil {
 		return err
