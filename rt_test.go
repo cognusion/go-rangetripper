@@ -1,6 +1,8 @@
 package rangetripper
 
 import (
+	"bytes"
+
 	. "github.com/smartystreets/goconvey/convey"
 
 	"io/ioutil"
@@ -111,7 +113,7 @@ func Test_RangeDownload(t *testing.T) {
 	}
 	defer os.Remove(tfile.Name())
 
-	tfile2, err := ioutil.TempFile("/tmp", "rd2")
+	tfile2, err := ioutil.TempFile("/tmp", "rdx")
 	if err != nil {
 		panic(err)
 	}
@@ -162,6 +164,46 @@ func Test_RangeDownload(t *testing.T) {
 		So(ferr, ShouldBeNil)
 		So(string(fileContents), ShouldEqual, string(serverBytes))
 
+	})
+
+}
+
+func Test_RangeDownloadChunkSize(t *testing.T) {
+
+	Convey("When a server is started that supports ranges, and chunkSize is set, RangeTripper downloads the content correctly", t, func(c C) {
+		serverBytes := []byte(`OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee`)
+
+		// Start a local HTTP server
+		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			sbuff := bytes.NewReader(serverBytes)
+			http.ServeContent(rw, req, "thefile", time.Now(), sbuff)
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		for chunkSize := int64(1); chunkSize < 10; chunkSize++ {
+			tfile, err := ioutil.TempFile("/tmp", "rtchunk")
+			if err != nil {
+				panic(err)
+			}
+			name := tfile.Name()
+			tfile.Close()
+			defer os.Remove(tfile.Name())
+
+			rt, err := New(10, name)
+			//rt, err := NewWithLoggers(10, name, log.New(io.Discard, "", 0), log.New(os.Stderr, "[DEBUG] ", 0))
+			So(err, ShouldBeNil)
+			rt.SetChunkSize(chunkSize)
+
+			req := httptest.NewRequest("GET", server.URL, nil)
+			_, rerr := rt.RoundTrip(req) // Run the request
+			So(rerr, ShouldBeNil)
+
+			fileContents, ferr := ioutil.ReadFile(tfile.Name())
+			So(ferr, ShouldBeNil)
+			So(string(fileContents), ShouldEqual, string(serverBytes))
+			So(rt.workers, ShouldEqual, int(int64(len(serverBytes))/chunkSize))
+		}
 	})
 
 }
@@ -273,7 +315,7 @@ func Test_StandardDownloadBrokenExp(t *testing.T) {
 }
 
 func Test_StandardDownload500s(t *testing.T) {
-	tfile, err := ioutil.TempFile("/tmp", "sd5s")
+	tfile, err := ioutil.TempFile("/tmp", "sdfs")
 	if err != nil {
 		panic(err)
 	}

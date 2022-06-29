@@ -2,12 +2,12 @@
 // the resulting HTTP server claims to support them in a HEAD request for the file. RangeTripper will
 // download 1/Nth of the file asynchronously with each of the ``fileChunks`` specified in a New.
 // N+1 actual downloaders are most likely as the +1 covers any gap from non-even division of content-length.
+//
 package rangetripper
 
 import (
 	"github.com/cognusion/go-sequence"
 	"github.com/cognusion/go-timings"
-	utils "github.com/cognusion/go-utils/ioutil"
 	"github.com/cognusion/semaphore"
 	"go.uber.org/atomic"
 
@@ -58,6 +58,7 @@ type RangeTripper struct {
 	progress   chan int64
 	used       bool
 	fetchError atomic.Error
+	chunkSize  int64
 }
 
 // New simply returns a RangeTripper or an error. Logged messages are discarded.
@@ -115,6 +116,17 @@ func (rt *RangeTripper) SetMax(max int) {
 	rt.sem = semaphore.NewSemaphore(max)
 }
 
+// SetChunkSize overrides the ``fileChunks`` and instead will divide the resulting Content-Length by this to
+// determine the appropriate chunk count dynamically. ``fileChunks`` will still be used to guide the maximum
+// number of concurrent workers, unless ``SetMax()`` is used.
+func (rt *RangeTripper) SetChunkSize(chunkBytes int64) {
+	if chunkBytes < 1 {
+		chunkBytes = 1
+	}
+
+	rt.chunkSize = chunkBytes
+}
+
 // WithProgress returns a read-only chan that will first provide the total length of the content (in bytes),
 // followed by a stream of completed byte-lengths. CAUTION: It is a generally bad idea to call this and then
 // ignore the resulting channel.
@@ -163,26 +175,28 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("error during HEAD: %d / %s", hres.StatusCode, hres.Status)
 	}
 
-	// No Content-Length? Just grab it like normal :(
-	if len(hres.Header["Content-Length"]) < 1 {
+	if cl := hres.Header.Get("Content-Length"); cl == "" {
+		// No Content-Length? Just grab it like normal :(
 		if err = rt.fetch(r.URL.String()); err != nil {
 			return nil, err
 		}
 		return hres, nil
-	}
-
-	// Non-numeric content-length? Bail.
-	if contentLength, err = strconv.Atoi(hres.Header["Content-Length"][0]); err != nil {
-		return nil, fmt.Errorf("[%s] value of Content-Length header appears non-numeric: '%s': %w", dlid, hres.Header["Content-Length"][0], ContentLengthNumericError)
+	} else if contentLength, err = strconv.Atoi(cl); err != nil {
+		// Non-numeric content-length? Bail.
+		return nil, fmt.Errorf("[%s] value of Content-Length header appears non-numeric: '%s': %w", dlid, cl, ContentLengthNumericError)
 	}
 
 	// Byte ranges accepted? Let's do this
-	if v, ok := hres.Header["Accept-Ranges"]; ok && v[0] == "bytes" {
+	if v := hres.Header.Get("Accept-Ranges"); v == "bytes" {
 		var (
 			start     int
 			end       int
 			chunkSize = int(contentLength / rt.workers)
 		)
+		if rt.chunkSize != 0 {
+			chunkSize = int(rt.chunkSize)
+			rt.workers = int(contentLength / chunkSize)
+		}
 
 		if rt.progress != nil {
 			rt.progress <- int64(contentLength)
@@ -329,9 +343,11 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 	}
 	defer res.Body.Close()
 
+	//rt.DebugOut.Printf("Range %d-%d returned %d, %s %s\n", start, end, res.StatusCode, res.Header.Get("Content-Range"), res.Header.Get("Content-Length"))
+
 	// Read the chunk into a buffer, and then write it to the outfile at the appropriate offset
 	var ra []byte
-	if ra, err = utils.ReadAll(res.Body); err != nil {
+	if ra, err = ioutil.ReadAll(res.Body); err != nil {
 		rt.DebugOut.Printf("Error during ReadAll byte %d: %s\n", start, err)
 		return err
 	} else if _, err = rt.outFile.WriteAt(ra, start); err != nil {
@@ -339,6 +355,6 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 		return err
 	}
 
-	rt.DebugOut.Printf("Finished Downloading %d-%d : %s\n", start, end, url)
+	rt.DebugOut.Printf("Finished Downloading %d-%d: %s\n", start, end, url)
 	return nil
 }
