@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -169,9 +170,42 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	if hres, err = rt.head(r.URL.String()); err != nil {
 		return nil, err
 	}
-	defer hres.Body.Close()
+	hres.Body.Close()
 
-	if hres.StatusCode != 200 {
+	if hres.StatusCode == http.StatusForbidden {
+
+		// Forbidden might just be for the HEAD
+		// headFake returns the Response or error from a GET request with a small RANGE
+		// IFF the Response is a 206 with Content-Length and Content-Range, used in cases
+		// where a HEAD may 403 (e.g. AWS S3) but a GET works fine
+		if hfres, hferr := rt.headFake(r.URL.String()); hferr != nil {
+			return nil, hferr
+		} else if hfres.StatusCode == http.StatusOK {
+			// 200 means it didn't accept the range, and gave us the whole file
+			defer hfres.Body.Close()
+			if _, err = io.Copy(rt.outFile, hfres.Body); err != nil {
+				return nil, fmt.Errorf("error during write (hf): %w", err)
+			}
+			// We done, albeit without ranges
+			return hfres, nil
+		} else if hfres.StatusCode == http.StatusPartialContent {
+			// We routed around the HEAD403 issue.
+
+			// Grab the size listed at the end of the Content-Range header,
+			// and force it into the Content-Length header
+			parts := strings.Split(hfres.Header.Get("Content-Range"), "/") // bytes 0-10/159
+			rt.DebugOut.Printf("%+v\n", parts)
+			if len(parts) == 2 {
+				hfres.Header.Set("Content-Length", parts[1])
+			}
+			// Silently replacing the old Response with this one after mangling the CL header
+			hres = hfres
+		} else {
+			// we resort to returning the original HEAD403
+			return nil, fmt.Errorf("error during HEAD: %d / %s", hres.StatusCode, hres.Status)
+		}
+
+	} else if hres.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("error during HEAD: %d / %s", hres.StatusCode, hres.Status)
 	}
 
@@ -264,18 +298,49 @@ func (rt *RangeTripper) Do(r *http.Request) (*http.Response, error) {
 // head returns the Response or error from a HEAD request for the specified URL
 func (rt *RangeTripper) head(url string) (*http.Response, error) {
 	var (
-		res *http.Response
 		req *http.Request
+		res *http.Response
 		err error
 	)
 
+	defer timings.Track("head", time.Now(), rt.TimingsOut)
+
+	// Create a simple HEAD request
 	if req, err = http.NewRequest("HEAD", url, nil); err != nil {
 		return nil, err
 	}
 
-	if res, err = rt.client.Do(req); err != nil {
+	if res, err = http.DefaultClient.Do(req); err != nil {
 		return nil, err
 	}
+	return res, nil
+}
+
+// headFake returns the Response or error from a GET request with a small RANGE
+func (rt *RangeTripper) headFake(url string) (*http.Response, error) {
+	var (
+		req   *http.Request
+		res   *http.Response
+		err   error
+		start int64 = 0
+		end   int64 = 10
+	)
+
+	defer timings.Track("headFake", time.Now(), rt.TimingsOut)
+
+	// Create a simple GET request
+	if req, err = http.NewRequest("GET", url, nil); err != nil {
+		return nil, err
+	}
+
+	// Add the Range header with our details
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+	if res, err = http.DefaultClient.Do(req); err != nil {
+		return nil, err
+	}
+
+	rt.DebugOut.Printf("HEADFAKE %d-%d returned %d, %s %s\n", start, end, res.StatusCode, res.Header.Get("Content-Range"), res.Header.Get("Content-Length"))
+
 	return res, nil
 }
 

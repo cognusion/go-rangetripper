@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	ErrStatusNope error = errors.New("non-retriable HTTP status received")
+	errStatusNope error = errors.New("non-retriable HTTP status received")
 )
 
 // RetryClient contains variables and methods to use when making smarter HTTP requests
@@ -26,7 +26,7 @@ type RetryClient struct {
 func NewRetryClient(retries int, every, timeout time.Duration) *RetryClient {
 
 	b := make(retrier.BlacklistClassifier, 1)
-	b[0] = ErrStatusNope
+	b[0] = errStatusNope
 
 	return &RetryClient{
 		client: &http.Client{
@@ -41,7 +41,7 @@ func NewRetryClient(retries int, every, timeout time.Duration) *RetryClient {
 // first after ``initially`` and exponentially longer each time, and use ``timeout`` as a timeout
 func NewRetryClientWithExponentialBackoff(retries int, initially, timeout time.Duration) *RetryClient {
 	b := make(retrier.BlacklistClassifier, 1)
-	b[0] = ErrStatusNope
+	b[0] = errStatusNope
 
 	return &RetryClient{
 		client: &http.Client{
@@ -63,7 +63,7 @@ func (w *RetryClient) Do(req *http.Request) (*http.Response, error) {
 		}
 
 		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-			return ErrStatusNope
+			return errStatusNope
 		} else if resp.StatusCode >= 300 || resp.StatusCode < 200 {
 			return fmt.Errorf("non 2XX HTTP status received: %s", resp.Status)
 		}

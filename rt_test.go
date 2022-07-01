@@ -209,13 +209,14 @@ func Test_RangeDownloadChunkSize(t *testing.T) {
 }
 
 func Test_HEAD403(t *testing.T) {
-	tfile, err := ioutil.TempFile("/tmp", "sdhc")
-	if err != nil {
-		panic(err)
-	}
-	defer os.Remove(tfile.Name())
 
-	Convey("When a server returns a 403, it is handled correctly", t, func() {
+	Convey("When a server returns a 403 for HEAD and GET, it is handled correctly", t, func() {
+		tfile, err := ioutil.TempFile("/tmp", "sdhc")
+		if err != nil {
+			panic(err)
+		}
+		defer os.Remove(tfile.Name())
+		defer tfile.Close()
 
 		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 			rw.WriteHeader(http.StatusForbidden)
@@ -224,31 +225,123 @@ func Test_HEAD403(t *testing.T) {
 		// Close the server when test finishes
 		defer server.Close()
 
-		// Use Client & URL from our local test server
-		//l := log.New(os.Stderr, "[DEBUG] ", 0)
-		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
-
 		rt, err := New(10, tfile.Name())
 		rt.SetClient(new(http.Client)) // use a normal http.Client
 		So(err, ShouldBeNil)
 
-		req := httptest.NewRequest("GET", server.URL, nil)
+		req, _ := http.NewRequest("GET", server.URL, nil)
 
 		_, rerr := rt.RoundTrip(req)
 		So(rerr, ShouldNotBeNil)
 	})
 
+	Convey("When a server returns a 403 for HEAD and a 206 for GET, it is handled correctly", t, func() {
+		serverBytes := []byte(`OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee`)
+
+		tfile, err := ioutil.TempFile("/tmp", "sdhc")
+		if err != nil {
+			panic(err)
+		}
+		defer os.Remove(tfile.Name())
+
+		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodHead {
+				rw.WriteHeader(http.StatusForbidden)
+				rw.Write([]byte(`FORBIDDEN`)) // Simple write
+				return
+			}
+			// GET, etc
+			sbuff := bytes.NewReader(serverBytes)
+			http.ServeContent(rw, req, "thefile", time.Now(), sbuff)
+
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		//rt, err := NewWithLoggers(10, tfile.Name(), log.New(io.Discard, "", 0), log.New(os.Stderr, "[DEBUG] ", 0))
+		rt, err := New(10, tfile.Name())
+		rt.SetClient(new(http.Client)) // use a normal http.Client
+		rt.SetChunkSize(10)
+
+		So(err, ShouldBeNil)
+
+		req, _ := http.NewRequest("GET", server.URL, nil)
+
+		_, rerr := rt.RoundTrip(req)
+		So(rerr, ShouldBeNil)
+		tfile.Close()
+
+		fileContents, ferr := ioutil.ReadFile(tfile.Name())
+		So(ferr, ShouldBeNil)
+		So(string(fileContents), ShouldEqual, string(serverBytes))
+	})
+
+	Convey("When a server returns a 403 for HEAD and a 200 for GET, it is handled correctly", t, func() {
+		serverBytes := []byte(`OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee`)
+
+		tfile, err := ioutil.TempFile("/tmp", "sdhc")
+		if err != nil {
+			panic(err)
+		}
+		defer os.Remove(tfile.Name())
+
+		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodHead {
+				rw.WriteHeader(http.StatusForbidden)
+				rw.Write([]byte(`FORBIDDEN`)) // Simple write
+				return
+			}
+			// GET, etc
+			rw.Write(serverBytes)
+
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		//rt, err := NewWithLoggers(10, tfile.Name(), log.New(io.Discard, "", 0), log.New(os.Stderr, "[DEBUG] ", 0))
+		rt, err := New(10, tfile.Name())
+		rt.SetClient(new(http.Client)) // use a normal http.Client
+		rt.SetChunkSize(10)
+
+		So(err, ShouldBeNil)
+
+		req, _ := http.NewRequest("GET", server.URL, nil)
+
+		_, rerr := rt.RoundTrip(req)
+		So(rerr, ShouldBeNil)
+		tfile.Close()
+
+		fileContents, ferr := ioutil.ReadFile(tfile.Name())
+		So(ferr, ShouldBeNil)
+		So(string(fileContents), ShouldEqual, string(serverBytes))
+	})
+
 }
 
-func Test_StandardDownloadBroken(t *testing.T) {
-	tfile, err := ioutil.TempFile("/tmp", "sdb")
-	if err != nil {
-		panic(err)
-	}
-	defer os.Remove(tfile.Name())
+func Test_RetryClient(t *testing.T) {
 
-	Convey("When a server is started that doesn't support ranges, and times out, retries happen, and then errors out", t, func() {
-		//serverBytes := []byte(`OK I have something to say here weeeeee`)
+	Convey("When a request works, RetryClient doesn't retry :)", t, func() {
+
+		// Start a local HTTP server
+		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			rw.Write([]byte("Woooo"))
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		rt := NewRetryClient(3, 10*time.Millisecond, 10*time.Millisecond) // custom RetryClient with short times
+		req, _ := http.NewRequest("GET", server.URL, nil)
+
+		start := time.Now()
+		res, rerr := rt.Do(req)
+		stop := time.Now()
+		So(rerr, ShouldBeNil)
+		So(res.StatusCode, ShouldEqual, http.StatusOK)
+		So(stop, ShouldHappenWithin, 2*time.Millisecond, start)
+
+	})
+
+	Convey("When a request times out, RetryClient retries happen, and then errors out", t, func() {
 
 		// Start a local HTTP server
 		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
@@ -257,36 +350,48 @@ func Test_StandardDownloadBroken(t *testing.T) {
 		// Close the server when test finishes
 		defer server.Close()
 
-		// Use Client & URL from our local test server
-		//l := log.New(os.Stderr, "[DEBUG] ", 0)
-		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
-
-		rt, err := New(10, tfile.Name())
-		rt.SetClient(NewRetryClient(3, 10*time.Millisecond, 10*time.Millisecond)) // custom RetryClient with short times
-		So(err, ShouldBeNil)
-
-		req := httptest.NewRequest("GET", server.URL, nil)
+		rt := NewRetryClient(3, 10*time.Millisecond, 10*time.Millisecond) // custom RetryClient with short times
+		req, _ := http.NewRequest("GET", server.URL, nil)
 
 		start := time.Now()
-		_, rerr := rt.RoundTrip(req)
+		_, rerr := rt.Do(req)
+		stop := time.Now()
+		So(rerr.Error(), ShouldContainSubstring, "context deadline exceeded")
+		So(stop, ShouldHappenWithin, ((3*2+1+1)*10)*time.Millisecond, start)
+
+	})
+
+	Convey("When a request returns a 403, RetryClient errors out immediately", t, func() {
+
+		// Start a local HTTP server
+		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			rw.WriteHeader(http.StatusForbidden)
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		rt := NewRetryClient(3, 10*time.Millisecond, 10*time.Millisecond) // custom RetryClient with short times
+		req, _ := http.NewRequest("GET", server.URL, nil)
+
+		start := time.Now()
+		_, rerr := rt.Do(req)
 		stop := time.Now()
 		So(rerr, ShouldNotBeNil)
-		So(stop, ShouldHappenWithin, ((3*2+1+1)*10)*time.Millisecond, start)
+		So(rerr, ShouldEqual, errStatusNope)
+		So(stop, ShouldHappenWithin, 2*time.Millisecond, start)
 
 	})
 
 }
 
-func Test_StandardDownloadBrokenExp(t *testing.T) {
+func Test_RetryClientExp(t *testing.T) {
 	tfile, err := ioutil.TempFile("/tmp", "sdbe")
 	if err != nil {
 		panic(err)
 	}
 	defer os.Remove(tfile.Name())
 
-	Convey("When a server is started that doesn't support ranges, and times out, retries happen exponentially, and then errors out", t, func() {
-		//serverBytes := []byte(`OK I have something to say here weeeeee`)
-
+	Convey("When a request times out, RetryClient retries happen exponentially, and then errors out", t, func() {
 		// Start a local HTTP server
 		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 			time.Sleep(1 * time.Second)
@@ -294,18 +399,11 @@ func Test_StandardDownloadBrokenExp(t *testing.T) {
 		// Close the server when test finishes
 		defer server.Close()
 
-		// Use Client & URL from our local test server
-		//l := log.New(os.Stderr, "[DEBUG] ", 0)
-		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
-
-		rt, err := New(10, tfile.Name())
-		rt.SetClient(NewRetryClientWithExponentialBackoff(3, 10*time.Millisecond, 10*time.Millisecond)) // custom RetryClient with short times
-		So(err, ShouldBeNil)
-
+		rt := NewRetryClientWithExponentialBackoff(3, 10*time.Millisecond, 10*time.Millisecond) // custom RetryClient with short times
 		req := httptest.NewRequest("GET", server.URL, nil)
 
 		start := time.Now()
-		_, rerr := rt.RoundTrip(req)
+		_, rerr := rt.Do(req)
 		stop := time.Now()
 		So(rerr, ShouldNotBeNil)
 		So(stop, ShouldHappenWithin, time.Duration(int64(math.Pow(10, 3)))*time.Millisecond, start)
@@ -331,10 +429,6 @@ func Test_StandardDownload500s(t *testing.T) {
 		}))
 		// Close the server when test finishes
 		defer server.Close()
-
-		// Use Client & URL from our local test server
-		//l := log.New(os.Stderr, "[DEBUG] ", 0)
-		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
 
 		rt, err := New(10, tfile.Name())
 		rt.SetClient(NewRetryClient(3, 10*time.Millisecond, 10*time.Millisecond)) // custom RetryClient with short times
@@ -365,10 +459,6 @@ func Test_StandardDownloadSecondRequestFails(t *testing.T) {
 		}))
 		// Close the server when test finishes
 		defer server.Close()
-
-		// Use Client & URL from our local test server
-		//l := log.New(os.Stderr, "[DEBUG] ", 0)
-		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
 
 		rt, err := New(10, tfile.Name())
 		So(err, ShouldBeNil)

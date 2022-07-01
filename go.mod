@@ -5,9 +5,8 @@ go 1.17
 require (
 	github.com/cognusion/go-sequence v1.0.0
 	github.com/cognusion/go-timings v1.0.0
-	github.com/cognusion/go-utils v1.0.0
 	github.com/cognusion/semaphore v1.2.0
-	github.com/eapache/go-resiliency v1.2.0
+	github.com/eapache/go-resiliency v1.3.0
 	github.com/smartystreets/goconvey v1.7.2
 	go.uber.org/atomic v1.9.0
 )
