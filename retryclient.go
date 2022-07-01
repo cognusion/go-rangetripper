@@ -1,11 +1,17 @@
 package rangetripper
 
 import (
+	"errors"
+
 	"github.com/eapache/go-resiliency/retrier"
 
 	"fmt"
 	"net/http"
 	"time"
+)
+
+var (
+	ErrStatusNope error = errors.New("non-retriable HTTP status received")
 )
 
 // RetryClient contains variables and methods to use when making smarter HTTP requests
@@ -19,24 +25,30 @@ type RetryClient struct {
 // and use ``timeout`` as a timeout
 func NewRetryClient(retries int, every, timeout time.Duration) *RetryClient {
 
+	b := make(retrier.BlacklistClassifier, 1)
+	b[0] = ErrStatusNope
+
 	return &RetryClient{
 		client: &http.Client{
 			Timeout: timeout,
 		},
 		timeout: timeout,
-		retrier: retrier.New(retrier.ConstantBackoff(retries, every), nil),
+		retrier: retrier.New(retrier.ConstantBackoff(retries, every), b),
 	}
 }
 
 // NewRetryClientWithExponentialBackoff returns a RetryClient that will retry failed requests ``retries`` times,
 // first after ``initially`` and exponentially longer each time, and use ``timeout`` as a timeout
 func NewRetryClientWithExponentialBackoff(retries int, initially, timeout time.Duration) *RetryClient {
+	b := make(retrier.BlacklistClassifier, 1)
+	b[0] = ErrStatusNope
+
 	return &RetryClient{
 		client: &http.Client{
 			Timeout: timeout,
 		},
 		timeout: timeout,
-		retrier: retrier.New(retrier.ExponentialBackoff(retries, initially), nil),
+		retrier: retrier.New(retrier.ExponentialBackoff(retries, initially), b),
 	}
 }
 
@@ -50,7 +62,9 @@ func (w *RetryClient) Do(req *http.Request) (*http.Response, error) {
 			return tryErr
 		}
 
-		if resp.StatusCode > 299 || resp.StatusCode < 200 {
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			return ErrStatusNope
+		} else if resp.StatusCode >= 300 || resp.StatusCode < 200 {
 			return fmt.Errorf("non 2XX HTTP status received: %s", resp.Status)
 		}
 
