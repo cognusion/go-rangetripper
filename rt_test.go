@@ -443,6 +443,50 @@ func Test_StandardDownload500s(t *testing.T) {
 
 }
 
+func Test_HEADErrorButGETRange(t *testing.T) {
+	tfile, err := ioutil.TempFile("/tmp", "sdfs")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(tfile.Name())
+
+	Convey("When a server is started that supports ranges but throws a low error on HEAD, retries happen, and it all works", t, func() {
+		serverBytes := []byte(`OK I have something to say here weeeeee!!!!`)
+
+		var server *httptest.Server
+
+		// Start a local HTTP server
+		server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodHead {
+				// we close the connection on HEAD
+				server.CloseClientConnections()
+				return
+			}
+			// GET, etc
+			sbuff := bytes.NewReader(serverBytes)
+			http.ServeContent(rw, req, "thefile", time.Now(), sbuff)
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		rt, err := New(10, tfile.Name())
+		rt.SetClient(NewRetryClient(3, 10*time.Millisecond, 10*time.Millisecond)) // custom RetryClient with short times
+		So(err, ShouldBeNil)
+
+		req := httptest.NewRequest("GET", server.URL, nil)
+
+		_, rerr := rt.RoundTrip(req)
+		So(rerr, ShouldBeNil)
+		tfile.Close()
+
+		fileContents, ferr := ioutil.ReadFile(tfile.Name())
+		So(ferr, ShouldBeNil)
+		So(string(fileContents), ShouldEqual, string(serverBytes))
+
+	})
+
+}
+
 func Test_StandardDownloadSecondRequestFails(t *testing.T) {
 	tfile, err := ioutil.TempFile("/tmp", "sd")
 	if err != nil {
