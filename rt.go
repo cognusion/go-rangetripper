@@ -1,8 +1,7 @@
 // Package rangetripper provides a performant http.RoundTripper that handles byte-range downloads if
 // the resulting HTTP server claims to support them in a HEAD request for the file. RangeTripper will
-// download 1/Nth of the file asynchronously with each of the ``fileChunks`` specified in a New.
+// download 1/Nth of the file asynchronously with each of the “fileChunks“ specified in a New.
 // N+1 actual downloaders are most likely as the +1 covers any gap from non-even division of content-length.
-//
 package rangetripper
 
 import (
@@ -117,9 +116,9 @@ func (rt *RangeTripper) SetMax(max int) {
 	rt.sem = semaphore.NewSemaphore(max)
 }
 
-// SetChunkSize overrides the ``fileChunks`` and instead will divide the resulting Content-Length by this to
-// determine the appropriate chunk count dynamically. ``fileChunks`` will still be used to guide the maximum
-// number of concurrent workers, unless ``SetMax()`` is used.
+// SetChunkSize overrides the “fileChunks“ and instead will divide the resulting Content-Length by this to
+// determine the appropriate chunk count dynamically. “fileChunks“ will still be used to guide the maximum
+// number of concurrent workers, unless “SetMax()“ is used.
 func (rt *RangeTripper) SetChunkSize(chunkBytes int64) {
 	if chunkBytes < 1 {
 		chunkBytes = 1
@@ -166,45 +165,42 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 
 	defer timings.Track(fmt.Sprintf("[%s] RangeTripper Full", dlid), time.Now(), rt.TimingsOut)
 
-	// Error on head? Bail.
+	// Error on head: Bail?
 	if hres, err = rt.head(r.URL.String()); err != nil {
-		return nil, err
+		// Some systems toss odd errors on HEAD requests. Noted against a PHP downloader that takes parameters.
+		hresn, errn := rt.tryHeadFake(r.URL.String())
+		if errn == nil && hresn == nil { // bad, bad, bad snowflake case
+			// return the original error
+			return nil, err
+		} else if errn != nil {
+			return nil, errn
+		} else if hresn.StatusCode == http.StatusOK {
+			// 200 means it didn't accept the range, and gave us the whole file
+			return hresn, nil
+		}
+		// silently replace the body
+		hresn.StatusCode = http.StatusOK
+		hres = hresn
 	}
 	hres.Body.Close()
 
 	if hres.StatusCode == http.StatusForbidden {
-
 		// Forbidden might just be for the HEAD
-		// headFake returns the Response or error from a GET request with a small RANGE
-		// IFF the Response is a 206 with Content-Length and Content-Range, used in cases
-		// where a HEAD may 403 (e.g. AWS S3) but a GET works fine
-		if hfres, hferr := rt.headFake(r.URL.String()); hferr != nil {
-			return nil, hferr
-		} else if hfres.StatusCode == http.StatusOK {
-			// 200 means it didn't accept the range, and gave us the whole file
-			defer hfres.Body.Close()
-			if _, err = io.Copy(rt.outFile, hfres.Body); err != nil {
-				return nil, fmt.Errorf("error during write (hf): %w", err)
-			}
-			// We done, albeit without ranges
-			return hfres, nil
-		} else if hfres.StatusCode == http.StatusPartialContent {
-			// We routed around the HEAD403 issue.
-
-			// Grab the size listed at the end of the Content-Range header,
-			// and force it into the Content-Length header
-			parts := strings.Split(hfres.Header.Get("Content-Range"), "/") // bytes 0-10/159
-			rt.DebugOut.Printf("%+v\n", parts)
-			if len(parts) == 2 {
-				hfres.Header.Set("Content-Length", parts[1])
-			}
-			// Silently replacing the old Response with this one after mangling the CL header
-			hres = hfres
-		} else {
+		hfres, hferr := rt.tryHeadFake(r.URL.String())
+		if hfres == nil && hferr == nil {
 			// we resort to returning the original HEAD403
 			return nil, fmt.Errorf("error during HEAD: %d / %s", hres.StatusCode, hres.Status)
+		} else if hferr != nil {
+			// we resort to returning the original HEAD403 but send the error to debug
+			rt.DebugOut.Printf("Error during tryHeadFake: %v\n", hferr)
+			return nil, fmt.Errorf("error during HEAD: %d / %s", hres.StatusCode, hres.Status)
+		} else if hfres.StatusCode == http.StatusOK {
+			// 200 means it didn't accept the range, and gave us the whole file
+			return hfres, nil
 		}
 
+		// silently replace the body
+		hres = hfres
 	} else if hres.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("error during HEAD: %d / %s", hres.StatusCode, hres.Status)
 	}
@@ -422,4 +418,44 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 
 	rt.DebugOut.Printf("Finished Downloading %d-%d: %s\n", start, end, url)
 	return nil
+}
+
+// tryHeadFake is an abstraction of logic used previously IFF a HEAD returned 403, so
+// it can now be used elsewhere. WARNING: if both return params are nil, that means
+// there was no error, per se, but neither were the results compelling, so you should
+// return any previous error you got from the HEAD.
+func (rt *RangeTripper) tryHeadFake(url string) (*http.Response, error) {
+	// headFake returns the Response or error from a GET request with a small RANGE
+	// IFF the Response is a 206 with Content-Length and Content-Range, used in cases
+	// where a HEAD may 403 (e.g. AWS S3) but a GET works fine
+	if hfres, hferr := rt.headFake(url); hferr != nil {
+		return nil, hferr
+	} else if hfres.StatusCode == http.StatusOK {
+		// 200 means it didn't accept the range, and gave us the whole file
+		defer hfres.Body.Close()
+		if _, err := io.Copy(rt.outFile, hfres.Body); err != nil {
+			return nil, fmt.Errorf("error during write (hf): %w", err)
+		}
+		// We done, albeit without ranges
+		return hfres, nil
+	} else if hfres.StatusCode == http.StatusPartialContent {
+		// We routed around the HEAD issue.
+
+		// Grab the size listed at the end of the Content-Range header,
+		// and force it into the Content-Length header
+		parts := strings.Split(hfres.Header.Get("Content-Range"), "/") // bytes 0-10/159
+		rt.DebugOut.Printf("%+v\n", parts)
+		if len(parts) == 2 {
+			hfres.Header.Set("Content-Length", parts[1])
+		}
+		if v := hfres.Header.Get("Accept-Ranges"); v != "bytes" {
+			hfres.Header.Set("Accept-Ranges", "bytes")
+		}
+		// Silently replacing the old Response with this one after mangling the CL header
+		return hfres, nil
+	} else {
+		// we should resort to returning the original error
+		return nil, nil // this is horrible.... rethink!
+	}
+
 }
