@@ -5,7 +5,6 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 
-	"io/ioutil"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +15,7 @@ import (
 
 func ExampleRangeTripper() {
 	// Set up a temporary file
-	tfile, err := ioutil.TempFile("/tmp", "rt")
+	tfile, err := os.CreateTemp("/tmp", "rt")
 	if err != nil {
 		panic(err)
 	}
@@ -34,7 +33,7 @@ func ExampleRangeTripper() {
 }
 
 func Test_StandardDownload(t *testing.T) {
-	tfile, err := ioutil.TempFile("/tmp", "sd")
+	tfile, err := os.CreateTemp("/tmp", "sd")
 	if err != nil {
 		panic(err)
 	}
@@ -61,7 +60,7 @@ func Test_StandardDownload(t *testing.T) {
 
 		_, rerr := rt.RoundTrip(req)
 		So(rerr, ShouldBeNil)
-		fileContents, ferr := ioutil.ReadFile(tfile.Name())
+		fileContents, ferr := os.ReadFile(tfile.Name())
 		So(ferr, ShouldBeNil)
 		So(string(fileContents), ShouldEqual, string(serverBytes))
 
@@ -70,7 +69,7 @@ func Test_StandardDownload(t *testing.T) {
 }
 
 func Test_StandardDownloadHTTPClient(t *testing.T) {
-	tfile, err := ioutil.TempFile("/tmp", "sdhc")
+	tfile, err := os.CreateTemp("/tmp", "sdhc")
 	if err != nil {
 		panic(err)
 	}
@@ -98,7 +97,7 @@ func Test_StandardDownloadHTTPClient(t *testing.T) {
 
 		_, rerr := rt.RoundTrip(req)
 		So(rerr, ShouldBeNil)
-		fileContents, ferr := ioutil.ReadFile(tfile.Name())
+		fileContents, ferr := os.ReadFile(tfile.Name())
 		So(ferr, ShouldBeNil)
 		So(string(fileContents), ShouldEqual, string(serverBytes))
 
@@ -107,13 +106,13 @@ func Test_StandardDownloadHTTPClient(t *testing.T) {
 }
 
 func Test_RangeDownload(t *testing.T) {
-	tfile, err := ioutil.TempFile("/tmp", "rd")
+	tfile, err := os.CreateTemp("/tmp", "rd")
 	if err != nil {
 		panic(err)
 	}
 	defer os.Remove(tfile.Name())
 
-	tfile2, err := ioutil.TempFile("/tmp", "rdx")
+	tfile2, err := os.CreateTemp("/tmp", "rdx")
 	if err != nil {
 		panic(err)
 	}
@@ -121,7 +120,7 @@ func Test_RangeDownload(t *testing.T) {
 
 	Convey("When a server is started that supports ranges, RangeTripper downloads the content correctly", t, func(c C) {
 		serverBytes := []byte(`OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee`)
-		werr := ioutil.WriteFile(tfile2.Name(), serverBytes, 0)
+		werr := os.WriteFile(tfile2.Name(), serverBytes, 0)
 		So(werr, ShouldBeNil)
 
 		// Start a local HTTP server
@@ -160,7 +159,7 @@ func Test_RangeDownload(t *testing.T) {
 		close(done)                  // Close the done chan
 
 		So(rerr, ShouldBeNil)
-		fileContents, ferr := ioutil.ReadFile(tfile.Name())
+		fileContents, ferr := os.ReadFile(tfile.Name())
 		So(ferr, ShouldBeNil)
 		So(string(fileContents), ShouldEqual, string(serverBytes))
 
@@ -182,7 +181,7 @@ func Test_RangeDownloadChunkSize(t *testing.T) {
 		defer server.Close()
 
 		for chunkSize := int64(1); chunkSize < 10; chunkSize++ {
-			tfile, err := ioutil.TempFile("/tmp", "rtchunk")
+			tfile, err := os.CreateTemp("/tmp", "rtchunk")
 			if err != nil {
 				panic(err)
 			}
@@ -199,7 +198,7 @@ func Test_RangeDownloadChunkSize(t *testing.T) {
 			_, rerr := rt.RoundTrip(req) // Run the request
 			So(rerr, ShouldBeNil)
 
-			fileContents, ferr := ioutil.ReadFile(tfile.Name())
+			fileContents, ferr := os.ReadFile(tfile.Name())
 			So(ferr, ShouldBeNil)
 			So(string(fileContents), ShouldEqual, string(serverBytes))
 			So(rt.workers, ShouldEqual, int(int64(len(serverBytes))/chunkSize))
@@ -211,7 +210,7 @@ func Test_RangeDownloadChunkSize(t *testing.T) {
 func Test_HEAD403(t *testing.T) {
 
 	Convey("When a server returns a 403 for HEAD and GET, it is handled correctly", t, func() {
-		tfile, err := ioutil.TempFile("/tmp", "sdhc")
+		tfile, err := os.CreateTemp("/tmp", "sdhc")
 		if err != nil {
 			panic(err)
 		}
@@ -238,7 +237,7 @@ func Test_HEAD403(t *testing.T) {
 	Convey("When a server returns a 403 for HEAD and a 206 for GET, it is handled correctly", t, func() {
 		serverBytes := []byte(`OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee`)
 
-		tfile, err := ioutil.TempFile("/tmp", "sdhc")
+		tfile, err := os.CreateTemp("/tmp", "sdhc")
 		if err != nil {
 			panic(err)
 		}
@@ -271,7 +270,7 @@ func Test_HEAD403(t *testing.T) {
 		So(rerr, ShouldBeNil)
 		tfile.Close()
 
-		fileContents, ferr := ioutil.ReadFile(tfile.Name())
+		fileContents, ferr := os.ReadFile(tfile.Name())
 		So(ferr, ShouldBeNil)
 		So(string(fileContents), ShouldEqual, string(serverBytes))
 	})
@@ -279,7 +278,7 @@ func Test_HEAD403(t *testing.T) {
 	Convey("When a server returns a 403 for HEAD and a 200 for GET, it is handled correctly", t, func() {
 		serverBytes := []byte(`OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee`)
 
-		tfile, err := ioutil.TempFile("/tmp", "sdhc")
+		tfile, err := os.CreateTemp("/tmp", "sdhc")
 		if err != nil {
 			panic(err)
 		}
@@ -311,7 +310,7 @@ func Test_HEAD403(t *testing.T) {
 		So(rerr, ShouldBeNil)
 		tfile.Close()
 
-		fileContents, ferr := ioutil.ReadFile(tfile.Name())
+		fileContents, ferr := os.ReadFile(tfile.Name())
 		So(ferr, ShouldBeNil)
 		So(string(fileContents), ShouldEqual, string(serverBytes))
 	})
@@ -385,7 +384,7 @@ func Test_RetryClient(t *testing.T) {
 }
 
 func Test_RetryClientExp(t *testing.T) {
-	tfile, err := ioutil.TempFile("/tmp", "sdbe")
+	tfile, err := os.CreateTemp("/tmp", "sdbe")
 	if err != nil {
 		panic(err)
 	}
@@ -413,7 +412,7 @@ func Test_RetryClientExp(t *testing.T) {
 }
 
 func Test_StandardDownload500s(t *testing.T) {
-	tfile, err := ioutil.TempFile("/tmp", "sdfs")
+	tfile, err := os.CreateTemp("/tmp", "sdfs")
 	if err != nil {
 		panic(err)
 	}
@@ -444,7 +443,7 @@ func Test_StandardDownload500s(t *testing.T) {
 }
 
 func Test_HEADErrorButGETRange(t *testing.T) {
-	tfile, err := ioutil.TempFile("/tmp", "sdfs")
+	tfile, err := os.CreateTemp("/tmp", "sdfs")
 	if err != nil {
 		panic(err)
 	}
@@ -479,7 +478,7 @@ func Test_HEADErrorButGETRange(t *testing.T) {
 		So(rerr, ShouldBeNil)
 		tfile.Close()
 
-		fileContents, ferr := ioutil.ReadFile(tfile.Name())
+		fileContents, ferr := os.ReadFile(tfile.Name())
 		So(ferr, ShouldBeNil)
 		So(string(fileContents), ShouldEqual, string(serverBytes))
 
@@ -488,7 +487,7 @@ func Test_HEADErrorButGETRange(t *testing.T) {
 }
 
 func Test_StandardDownloadSecondRequestFails(t *testing.T) {
-	tfile, err := ioutil.TempFile("/tmp", "sd")
+	tfile, err := os.CreateTemp("/tmp", "sd")
 	if err != nil {
 		panic(err)
 	}
@@ -511,7 +510,7 @@ func Test_StandardDownloadSecondRequestFails(t *testing.T) {
 
 		_, rerr := rt.RoundTrip(req)
 		So(rerr, ShouldBeNil)
-		fileContents, ferr := ioutil.ReadFile(tfile.Name())
+		fileContents, ferr := os.ReadFile(tfile.Name())
 		So(ferr, ShouldBeNil)
 		So(string(fileContents), ShouldEqual, string(serverBytes))
 
