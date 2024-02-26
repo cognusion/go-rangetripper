@@ -12,7 +12,6 @@ import (
 
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -27,6 +26,8 @@ const (
 	ContentLengthNumericError   = rtError("Content-Length value cannot be converted to a number")
 	ContentLengthMismatchError  = rtError("downloaded file size does not match content-length")
 	SingleRequestExhaustedError = rtError("one request has already been made with this RangeTripper")
+
+	headFakeFailedError = rtError("headfake failed, return previous error")
 )
 
 var (
@@ -81,12 +82,12 @@ func NewWithLoggers(fileChunks int, outputFilePath string, timingLogger, debugLo
 
 	// Discard if nil
 	if timingLogger == nil {
-		timingLogger = log.New(ioutil.Discard, "", 0)
+		timingLogger = log.New(io.Discard, "", 0)
 	}
 
 	// Discard if nil
 	if debugLogger == nil {
-		debugLogger = log.New(ioutil.Discard, "", 0)
+		debugLogger = log.New(io.Discard, "", 0)
 	}
 
 	return &RangeTripper{
@@ -169,17 +170,15 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	if hres, err = rt.head(r.URL.String()); err != nil {
 		// Some systems toss odd errors on HEAD requests. Noted against a PHP downloader that takes parameters.
 		hresn, errn := rt.tryHeadFake(r.URL.String())
-		if errn == nil && hresn == nil { // bad, bad, bad snowflake case
-			// return the original error
+		if errn != nil {
+			// headfake didn't work out, return original error
 			return nil, err
-		} else if errn != nil {
-			return nil, errn
 		} else if hresn.StatusCode == http.StatusOK {
-			// 200 means it didn't accept the range, and gave us the whole file
+			// 200 means it didn't accept the range, and gave us the whole file, so we are done.
 			return hresn, nil
 		}
+		// POST: headfake worked, and we can GET using ranges
 		// silently replace the body
-		hresn.StatusCode = http.StatusOK
 		hres = hresn
 	}
 	hres.Body.Close()
@@ -187,23 +186,24 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	if hres.StatusCode == http.StatusForbidden {
 		// Forbidden might just be for the HEAD
 		hfres, hferr := rt.tryHeadFake(r.URL.String())
-		if hfres == nil && hferr == nil {
+		if hferr == headFakeFailedError {
 			// we resort to returning the original HEAD403
 			return nil, fmt.Errorf("error during HEAD: %d / %s", hres.StatusCode, hres.Status)
 		} else if hferr != nil {
-			// we resort to returning the original HEAD403 but send the error to debug
+			// we resort to returning the original HEAD403 but send the returned error to debug
 			rt.DebugOut.Printf("Error during tryHeadFake: %v\n", hferr)
 			return nil, fmt.Errorf("error during HEAD: %d / %s", hres.StatusCode, hres.Status)
 		} else if hfres.StatusCode == http.StatusOK {
 			// 200 means it didn't accept the range, and gave us the whole file
 			return hfres, nil
 		}
-
+		// POST: headfake worked, and we can GET using ranges
 		// silently replace the body
 		hres = hfres
-	} else if hres.StatusCode != http.StatusOK {
+	} else if !(hres.StatusCode == http.StatusOK || hres.StatusCode == http.StatusPartialContent) {
 		return nil, fmt.Errorf("error during HEAD: %d / %s", hres.StatusCode, hres.Status)
 	}
+	// POST: Either HEAD or GET RANGE succeeded in determining support for range downloads. Proceed!
 
 	if cl := hres.Header.Get("Content-Length"); cl == "" {
 		// No Content-Length? Just grab it like normal :(
@@ -408,7 +408,7 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 
 	// Read the chunk into a buffer, and then write it to the outfile at the appropriate offset
 	var ra []byte
-	if ra, err = ioutil.ReadAll(res.Body); err != nil {
+	if ra, err = io.ReadAll(res.Body); err != nil {
 		rt.DebugOut.Printf("Error during ReadAll byte %d: %s\n", start, err)
 		return err
 	} else if _, err = rt.outFile.WriteAt(ra, start); err != nil {
@@ -421,7 +421,7 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 }
 
 // tryHeadFake is an abstraction of logic used previously IFF a HEAD returned 403, so
-// it can now be used elsewhere. WARNING: if both return params are nil, that means
+// it can now be used elsewhere. If the error is `headFakeFailedError`, that means
 // there was no error, per se, but neither were the results compelling, so you should
 // return any previous error you got from the HEAD.
 func (rt *RangeTripper) tryHeadFake(url string) (*http.Response, error) {
@@ -455,7 +455,7 @@ func (rt *RangeTripper) tryHeadFake(url string) (*http.Response, error) {
 		return hfres, nil
 	} else {
 		// we should resort to returning the original error
-		return nil, nil // this is horrible.... rethink!
+		return nil, headFakeFailedError
 	}
 
 }
