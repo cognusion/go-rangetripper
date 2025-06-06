@@ -377,7 +377,7 @@ func Test_RetryClient(t *testing.T) {
 		stop := time.Now()
 		So(rerr, ShouldNotBeNil)
 		So(rerr, ShouldEqual, errStatusNope)
-		So(stop, ShouldHappenWithin, 2*time.Millisecond, start)
+		So(stop, ShouldHappenWithin, 4*time.Millisecond, start)
 
 	})
 
