@@ -3,6 +3,7 @@ package rangetripper
 import (
 	"bytes"
 
+	"github.com/fortytw2/leaktest"
 	. "github.com/smartystreets/goconvey/convey"
 
 	"math"
@@ -33,6 +34,8 @@ func ExampleRangeTripper() {
 }
 
 func Test_StandardDownload(t *testing.T) {
+	defer leaktest.Check(t)()
+
 	tfile, err := os.CreateTemp("/tmp", "sd")
 	if err != nil {
 		panic(err)
@@ -69,6 +72,8 @@ func Test_StandardDownload(t *testing.T) {
 }
 
 func Test_StandardDownloadHTTPClient(t *testing.T) {
+	defer leaktest.Check(t)()
+
 	tfile, err := os.CreateTemp("/tmp", "sdhc")
 	if err != nil {
 		panic(err)
@@ -106,6 +111,8 @@ func Test_StandardDownloadHTTPClient(t *testing.T) {
 }
 
 func Test_RangeDownload(t *testing.T) {
+	defer leaktest.Check(t)()
+
 	tfile, err := os.CreateTemp("/tmp", "rd")
 	if err != nil {
 		panic(err)
@@ -168,6 +175,7 @@ func Test_RangeDownload(t *testing.T) {
 }
 
 func Test_RangeDownloadChunkSize(t *testing.T) {
+	defer leaktest.Check(t)()
 
 	Convey("When a server is started that supports ranges, and chunkSize is set, RangeTripper downloads the content correctly", t, func(c C) {
 		serverBytes := []byte(`OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee`)
@@ -208,6 +216,7 @@ func Test_RangeDownloadChunkSize(t *testing.T) {
 }
 
 func Test_HEAD403(t *testing.T) {
+	defer leaktest.Check(t)()
 
 	Convey("When a server returns a 403 for HEAD and GET, it is handled correctly", t, func() {
 		tfile, err := os.CreateTemp("/tmp", "sdhc")
@@ -318,6 +327,7 @@ func Test_HEAD403(t *testing.T) {
 }
 
 func Test_RetryClient(t *testing.T) {
+	defer leaktest.Check(t)()
 
 	Convey("When a request works, RetryClient doesn't retry :)", t, func() {
 
@@ -384,6 +394,8 @@ func Test_RetryClient(t *testing.T) {
 }
 
 func Test_RetryClientExp(t *testing.T) {
+	defer leaktest.Check(t)()
+
 	tfile, err := os.CreateTemp("/tmp", "sdbe")
 	if err != nil {
 		panic(err)
@@ -412,6 +424,8 @@ func Test_RetryClientExp(t *testing.T) {
 }
 
 func Test_StandardDownload500s(t *testing.T) {
+	defer leaktest.Check(t)()
+
 	tfile, err := os.CreateTemp("/tmp", "sdfs")
 	if err != nil {
 		panic(err)
@@ -443,6 +457,8 @@ func Test_StandardDownload500s(t *testing.T) {
 }
 
 func Test_HEADErrorButGETRange(t *testing.T) {
+	defer leaktest.Check(t)()
+
 	tfile, err := os.CreateTemp("/tmp", "sdfs")
 	if err != nil {
 		panic(err)
@@ -487,6 +503,8 @@ func Test_HEADErrorButGETRange(t *testing.T) {
 }
 
 func Test_StandardDownloadSecondRequestFails(t *testing.T) {
+	defer leaktest.Check(t)()
+
 	tfile, err := os.CreateTemp("/tmp", "sd")
 	if err != nil {
 		panic(err)
