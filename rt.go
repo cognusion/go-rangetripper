@@ -54,10 +54,9 @@ type RangeTripper struct {
 	toFile     string
 	outFile    *os.File
 	wg         sync.WaitGroup
-	checkLock  sync.Mutex
 	sem        semaphore.Semaphore
 	progress   chan int64
-	used       bool
+	used       atomic.Bool
 	fetchError atomic.Error
 	chunkSize  int64
 }
@@ -143,19 +142,17 @@ func (rt *RangeTripper) WithProgress() <-chan int64 {
 // errors are important. Both the Request.Body and the RangeTripper.outFile will be
 // closed when this function returns.
 func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
-	// We only allow one execution total, which is gated by the rt.used flag,
-	// but to prevent races, we wrap it in a mutex to ensure proper control
-	rt.checkLock.Lock()
-	defer rt.checkLock.Unlock()
+	// We only allow one execution total, which is gated by the rt.used flag.
+	if rt.used.Swap(true) {
+		// Swap has atomically set the value to true, but returned the previous
+		// value of false.
+		return nil, SingleRequestExhaustedError
+	}
+
 	defer rt.outFile.Close()
 	if r.Body != nil {
 		defer r.Body.Close()
 	}
-
-	if rt.used {
-		return nil, SingleRequestExhaustedError
-	}
-	rt.used = true
 
 	var (
 		hres          *http.Response
