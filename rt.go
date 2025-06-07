@@ -144,8 +144,8 @@ func (rt *RangeTripper) WithProgress() <-chan int64 {
 func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	// We only allow one execution total, which is gated by the rt.used flag.
 	if rt.used.Swap(true) {
-		// Swap has atomically set the value to true, but returned the previous
-		// value of false.
+		// Swap has atomically set the value to true, and returned the previous
+		// value of also true.
 		return nil, SingleRequestExhaustedError
 	}
 
