@@ -2,6 +2,7 @@ package rangetripper
 
 import (
 	"bytes"
+	"io"
 
 	"github.com/fortytw2/leaktest"
 	. "github.com/smartystreets/goconvey/convey"
@@ -110,7 +111,7 @@ func Test_StandardDownloadHTTPClient(t *testing.T) {
 
 }
 
-func Test_RangeDownload(t *testing.T) {
+func Test_RangeDownloadFile(t *testing.T) {
 	defer leaktest.Check(t)()
 
 	tfile, err := os.CreateTemp("/tmp", "rd")
@@ -125,7 +126,7 @@ func Test_RangeDownload(t *testing.T) {
 	}
 	defer os.Remove(tfile2.Name())
 
-	Convey("When a server is started that supports ranges, RangeTripper downloads the content correctly", t, func(c C) {
+	Convey("When a server is started that supports ranges, RangeTripper downloads the content correctly to a file", t, func(c C) {
 		serverBytes := []byte(`OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee`)
 		werr := os.WriteFile(tfile2.Name(), serverBytes, 0)
 		So(werr, ShouldBeNil)
@@ -169,6 +170,67 @@ func Test_RangeDownload(t *testing.T) {
 		fileContents, ferr := os.ReadFile(tfile.Name())
 		So(ferr, ShouldBeNil)
 		So(string(fileContents), ShouldEqual, string(serverBytes))
+
+	})
+
+}
+
+func Test_RangeDownloadBuffer(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	tfile2, err := os.CreateTemp("/tmp", "rdx")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(tfile2.Name())
+
+	Convey("When a server is started that supports ranges, RangeTripper downloads the content correctly to a Buffer", t, func(c C) {
+		serverBytes := []byte(`OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee OK I have something to say here weeeeee`)
+		werr := os.WriteFile(tfile2.Name(), serverBytes, 0)
+		So(werr, ShouldBeNil)
+
+		// Start a local HTTP server
+		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			http.ServeFile(rw, req, tfile2.Name()) // ServeFile sets Content-Length and Accept-Ranges
+		}))
+		// Close the server when test finishes
+		defer server.Close()
+
+		rt, err := New(10, "BUFFER")
+		So(err, ShouldBeNil)
+
+		req := httptest.NewRequest("GET", server.URL, nil)
+
+		// Check the progress
+		done := make(chan interface{})
+		progress := rt.WithProgress()
+		go func(x C, p <-chan int64) {
+
+			contentLength := <-p // first item is the contentLength
+			var count int64
+			for {
+				select {
+				case <-done:
+					//x.Printf("\nSo %d ShouldEqual %d\n", count, contentLength)
+					x.So(count, ShouldEqual, contentLength)
+					return
+				case b := <-p:
+					count += b
+				}
+			}
+
+		}(c, progress)
+
+		resp, rerr := rt.RoundTrip(req) // Run the request
+		close(done)                     // Close the done chan
+
+		So(rerr, ShouldBeNil)
+		rBytes, raerr := io.ReadAll(resp.Body)
+		So(raerr, ShouldBeNil)
+
+		defer resp.Body.Close()
+
+		So(rBytes, ShouldResemble, serverBytes)
 
 	})
 

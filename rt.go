@@ -5,6 +5,7 @@
 package rangetripper
 
 import (
+	"github.com/cognusion/go-recyclable"
 	"github.com/cognusion/go-sequence"
 	"github.com/cognusion/go-timings"
 	"github.com/cognusion/semaphore"
@@ -31,7 +32,8 @@ const (
 )
 
 var (
-	seq = sequence.New(0)
+	seq   = sequence.New(0)
+	rPool = recyclable.NewBufferPool()
 )
 
 // RTError is an error type
@@ -40,6 +42,12 @@ type rtError string
 // Error returns the stringified version of RTError
 func (e rtError) Error() string {
 	return string(e)
+}
+
+// rangeWriter is an internal type to simplify abstracting the os.File and the recyclable.Buffer.
+type rangeWriter interface {
+	io.Writer
+	io.WriterAt
 }
 
 // RangeTripper is an http.RoundTripper to be used in an http.Client.
@@ -52,7 +60,7 @@ type RangeTripper struct {
 	client     Client
 	workers    int
 	toFile     string
-	outFile    *os.File
+	outFile    rangeWriter
 	wg         sync.WaitGroup
 	sem        semaphore.Semaphore
 	progress   chan int64
@@ -61,17 +69,38 @@ type RangeTripper struct {
 	chunkSize  int64
 }
 
-// New simply returns a RangeTripper or an error. Logged messages are discarded.
+// New returns a RangeTripper or an error. Logged messages are discarded.
+//
+// fileChunks is the number of pieces to divide the dowloaded file into (+/- 1). Overridden by SetMax.
+//
+// outFilePath is the path to a filesystem location to save the file to, or "BUFFER". In the latter case,
+// the contents will be returned in the final http.Response returned by Roundtrip, as the Response.Body.
 func New(fileChunks int, outputFilePath string) (*RangeTripper, error) {
 	return NewWithLoggers(fileChunks, outputFilePath, nil, nil)
 }
 
 // NewWithLoggers returns a RangeTripper or an error. Logged messages are sent to the specified Logger, or discarded if nil.
+//
+// fileChunks is the number of pieces to divide the dowloaded file into (+/- 1). Overridden by SetMax.
+//
+// outFilePath is the path to a filesystem location to save the file to, or "BUFFER". In the latter case,
+// the contents will be returned in the final http.Response returned by Roundtrip, as the Response.Body.
+//
+// timingLogger is a logger to send timing-related messages to.
+//
+// debugLogger is a logger to send debug messages to.
 func NewWithLoggers(fileChunks int, outputFilePath string, timingLogger, debugLogger *log.Logger) (*RangeTripper, error) {
-	// Validate file to write to, early
-	outFile, err := os.Create(outputFilePath)
-	if err != nil {
-		return nil, err
+	var outFile rangeWriter
+	if outputFilePath == "BUFFER" {
+		// Memory buffer, not file
+		outFile = rPool.Get()
+	} else {
+		// Validate file to write to, early
+		var err error
+		outFile, err = os.Create(outputFilePath)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// sanity
@@ -149,7 +178,10 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		return nil, SingleRequestExhaustedError
 	}
 
-	defer rt.outFile.Close()
+	if f, ok := rt.outFile.(*os.File); ok {
+		defer f.Close()
+	}
+
 	if r.Body != nil {
 		defer r.Body.Close()
 	}
@@ -231,7 +263,7 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 
 		rt.DebugOut.Printf("[%s] Ranges supported! Content Length: %d, Downloaders: %d, Chunk Size %d\n", dlid, contentLength, rt.workers, chunkSize)
 
-		for i := 0; i < rt.workers; i++ {
+		for range rt.workers {
 			rt.sem.Lock()
 			if ferr := rt.fetchError.Load(); ferr != nil {
 				// We've had an error, bail
@@ -264,13 +296,25 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 
 		rt.DebugOut.Printf("[%s] complete\n", dlid)
 		defer timings.Track(fmt.Sprintf("[%s] RangeTripper Assembled", dlid), time.Now(), rt.TimingsOut)
+
 		//Verify file size
-		fileStats, err := rt.outFile.Stat()
-		if err != nil {
-			return nil, err
+		if f, ok := rt.outFile.(*os.File); ok {
+			fileStats, err := f.Stat()
+			if err != nil {
+				return nil, err
+			}
+			if fileSize := fileStats.Size(); fileSize != int64(contentLength) {
+				return nil, fmt.Errorf("[%s] actual Size: %d expected Size: %d : %w", dlid, fileSize, contentLength, ContentLengthMismatchError)
+			}
+		} else if f, ok := rt.outFile.(*recyclable.Buffer); ok {
+			// Buffer size check
+			if f.Len() != contentLength {
+				return nil, fmt.Errorf("[%s] actual Size: %d expected Size: %d : %w", dlid, f.Len(), contentLength, ContentLengthMismatchError)
+			}
 		}
-		if fileSize := fileStats.Size(); fileSize != int64(contentLength) {
-			return nil, fmt.Errorf("[%s] actual Size: %d expected Size: %d : %w", dlid, fileSize, contentLength, ContentLengthMismatchError)
+
+		if f, ok := rt.outFile.(io.ReadCloser); ok {
+			hres.Body = f
 		}
 		return hres, nil
 	}
@@ -280,6 +324,10 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	rt.fetch(r.URL.String())
 
 	rt.DebugOut.Printf("[%s] Download Complete\n", dlid)
+
+	if f, ok := rt.outFile.(*recyclable.Buffer); ok {
+		hres.Body = f
+	}
 	return hres, nil
 }
 

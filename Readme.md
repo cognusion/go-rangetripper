@@ -9,7 +9,7 @@
 ## <a name="pkg-overview">Overview</a>
 Package rangetripper provides a performant http.RoundTripper that handles byte-range downloads if
 the resulting HTTP server claims to support them in a HEAD request for the file. RangeTripper will
-download 1/Nth of the file asynchronously with each of the ``fileChunks`` specified in a New.
+download 1/Nth of the file asynchronously with each of the “fileChunks“ specified in a New.
 N+1 actual downloaders are most likely as the +1 covers any gap from non-even division of content-length.
 
 
@@ -76,7 +76,7 @@ to a RangeTripper, or :mindblown:. DefaultClient can be a lowly http.Client if y
 
 
 
-## <a name="RangeTripper">type</a> [RangeTripper](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1387:1704#L48)
+## <a name="RangeTripper">type</a> [RangeTripper](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1677:1981#L56)
 ``` go
 type RangeTripper struct {
     TimingsOut *log.Logger
@@ -95,24 +95,38 @@ A single RangeTripper *must* only be used for one request.
 
 
 
-### <a name="New">func</a> [New](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=1787:1857#L66)
+### <a name="New">func</a> [New](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=2377:2447#L78)
 ``` go
 func New(fileChunks int, outputFilePath string) (*RangeTripper, error)
 ```
-New simply returns a RangeTripper or an error. Logged messages are discarded.
+New returns a RangeTripper or an error. Logged messages are discarded.
+
+fileChunks is the number of pieces to divide the dowloaded file into (+/- 1). Overridden by SetMax.
+
+outFilePath is the path to a filesystem location to save the file to, or "BUFFER". In the latter case,
+the contents will be returned in the final http.Response returned by Roundtrip, as the Response.Body.
 
 
-### <a name="NewWithLoggers">func</a> [NewWithLoggers](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=2049:2169#L71)
+### <a name="NewWithLoggers">func</a> [NewWithLoggers](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=3083:3203#L92)
 ``` go
 func NewWithLoggers(fileChunks int, outputFilePath string, timingLogger, debugLogger *log.Logger) (*RangeTripper, error)
 ```
 NewWithLoggers returns a RangeTripper or an error. Logged messages are sent to the specified Logger, or discarded if nil.
 
+fileChunks is the number of pieces to divide the dowloaded file into (+/- 1). Overridden by SetMax.
+
+outFilePath is the path to a filesystem location to save the file to, or "BUFFER". In the latter case,
+the contents will be returned in the final http.Response returned by Roundtrip, as the Response.Body.
+
+timingLogger is a logger to send timing-related messages to.
+
+debugLogger is a logger to send debug messages to.
 
 
 
 
-### <a name="RangeTripper.Do">func</a> (\*RangeTripper) [Do](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=9272:9339#L294)
+
+### <a name="RangeTripper.Do">func</a> (\*RangeTripper) [Do](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=10932:10999#L335)
 ``` go
 func (rt *RangeTripper) Do(r *http.Request) (*http.Response, error)
 ```
@@ -121,7 +135,7 @@ Do is a satisfier of the rangetripper.Client interface, and is identical to Roun
 
 
 
-### <a name="RangeTripper.RoundTrip">func</a> (\*RangeTripper) [RoundTrip](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=4254:4328#L145)
+### <a name="RangeTripper.RoundTrip">func</a> (\*RangeTripper) [RoundTrip](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=5430:5504#L173)
 ``` go
 func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error)
 ```
@@ -133,18 +147,18 @@ closed when this function returns.
 
 
 
-### <a name="RangeTripper.SetChunkSize">func</a> (\*RangeTripper) [SetChunkSize](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=3458:3512#L123)
+### <a name="RangeTripper.SetChunkSize">func</a> (\*RangeTripper) [SetChunkSize](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=4634:4688#L151)
 ``` go
 func (rt *RangeTripper) SetChunkSize(chunkBytes int64)
 ```
-SetChunkSize overrides the ``fileChunks`` and instead will divide the resulting Content-Length by this to
-determine the appropriate chunk count dynamically. ``fileChunks`` will still be used to guide the maximum
-number of concurrent workers, unless ``SetMax()`` is used.
+SetChunkSize overrides the “fileChunks“ and instead will divide the resulting Content-Length by this to
+determine the appropriate chunk count dynamically. “fileChunks“ will still be used to guide the maximum
+number of concurrent workers, unless “SetMax()“ is used.
 
 
 
 
-### <a name="RangeTripper.SetClient">func</a> (\*RangeTripper) [SetClient](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=2860:2908#L105)
+### <a name="RangeTripper.SetClient">func</a> (\*RangeTripper) [SetClient](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=4030:4078#L133)
 ``` go
 func (rt *RangeTripper) SetClient(client Client)
 ```
@@ -153,7 +167,7 @@ SetClient allows for overriding the Client used to make the requests.
 
 
 
-### <a name="RangeTripper.SetMax">func</a> (\*RangeTripper) [SetMax](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=3014:3053#L110)
+### <a name="RangeTripper.SetMax">func</a> (\*RangeTripper) [SetMax](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=4184:4223#L138)
 ``` go
 func (rt *RangeTripper) SetMax(max int)
 ```
@@ -162,7 +176,7 @@ SetMax allows for setting the maximum number of concurrently-running workers
 
 
 
-### <a name="RangeTripper.WithProgress">func</a> (\*RangeTripper) [WithProgress](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=3838:3889#L134)
+### <a name="RangeTripper.WithProgress">func</a> (\*RangeTripper) [WithProgress](https://github.com/cognusion/go-rangetripper/tree/master/rt.go?s=5014:5065#L162)
 ``` go
 func (rt *RangeTripper) WithProgress() <-chan int64
 ```
@@ -221,4 +235,4 @@ Do takes a Request, and returns a Response or an error, following the rules of t
 
 
 - - -
-Generated by [godoc2md](http://godoc.org/github.com/cognusion/godoc2md)
+Generated by [godoc2md](http://github.com/cognusion/godoc2md)
