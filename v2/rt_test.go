@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-func ExampleRangeTripper() {
+func Example() {
 	// Set up a temporary file
 	tfile, err := os.CreateTemp("/tmp", "rt")
 	if err != nil {

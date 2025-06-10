@@ -14,6 +14,31 @@ download 1/Nth of the file asynchronously with each of the “fileChunks“ spec
 N+1 actual downloaders are most likely as the +1 covers any gap from non-even division of content-length.
 
 
+##### Example :
+``` go
+// Set up a temporary file
+tfile, err := os.CreateTemp("/tmp", "rt")
+if err != nil {
+    panic(err)
+}
+defer os.Remove(tfile.Name()) // clean up after ourselves
+
+client := new(http.Client) // make a new Client
+rt, _ := New(10)           // make a new RangeTripper (errors ignored for brevity. Don't be dumb)
+    client.Transport = rt      // Use the RangeTripper as the Transport
+
+    ctx := WithOutfile(context.Background(), tfile.Name())
+    req, err := http.NewRequestWithContext(ctx, "GET", "https://google.com/", nil)
+    if err != nil {
+        panic(err)
+    }
+
+    if _, err := client.Do(req); err != nil {
+        panic(err)
+    }
+    // tfile is the google homepage
+```
+
 
 
 ## <a name="pkg-index">Index</a>
@@ -35,7 +60,7 @@ N+1 actual downloaders are most likely as the +1 covers any gap from non-even di
   * [func (w *RetryClient) Do(req *http.Request) (*http.Response, error)](#RetryClient.Do)
 
 #### <a name="pkg-examples">Examples</a>
-* [RangeTripper](#example-rangetripper)
+* [Package](#example-)
 
 #### <a name="pkg-files">Package files</a>
 [client.go](https://github.com/cognusion/go-rangetripper/tree/master/v2/client.go) [retryclient.go](https://github.com/cognusion/go-rangetripper/tree/master/v2/retryclient.go) [rt.go](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go)
@@ -115,31 +140,6 @@ This should not be used in its default state, instead by its New functions.
 A single RangeTripper *must* only be used for one request.
 
 
-
-##### Example RangeTripper:
-``` go
-// Set up a temporary file
-tfile, err := os.CreateTemp("/tmp", "rt")
-if err != nil {
-    panic(err)
-}
-defer os.Remove(tfile.Name()) // clean up after ourselves
-
-client := new(http.Client) // make a new Client
-rt, _ := New(10)           // make a new RangeTripper (errors ignored for brevity. Don't be dumb)
-    client.Transport = rt      // Use the RangeTripper as the Transport
-
-    ctx := WithOutfile(context.Background(), tfile.Name())
-    req, err := http.NewRequestWithContext(ctx, "GET", "https://google.com/", nil)
-    if err != nil {
-        panic(err)
-    }
-
-    if _, err := client.Do(req); err != nil {
-        panic(err)
-    }
-    // tfile is the google homepage
-```
 
 
 
