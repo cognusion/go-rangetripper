@@ -30,8 +30,11 @@ const (
 
 	headFakeFailedError = rtError("headfake failed, return previous error")
 
-	outfileKey contextIDKey = iota
-	progressChanKey
+	// OutfileKey is used in an http.Request's Context.WithValue to specify a file to write the fetched web object to, instead of a buffer.
+	OutfileKey contextIDKey = iota
+	// ProgressChanKey is used in an http.Request's Context.WithValue to pass a chan int64 where RoundTrip will push bytes-written progress updates.
+	// The first message to this chan will be either the content-length (if known) or 0 if not.
+	ProgressChanKey
 )
 
 var (
@@ -145,8 +148,8 @@ func (rt *RangeTripper) SetChunkSize(chunkBytes int64) {
 //
 // The following Context Key/Values impact the RoundTrip:
 //
-//	outfileKey: The value of that is assumed to be a file path path that is where the file should be written to.
-//	progressChanKey: The value is assumed to be a chan int64 where RoundTrip will push bytes-written progress updates.
+//	OutfileKey: The value of that is assumed to be a file path path that is where the file should be written to.
+//	ProgressChanKey: The value is assumed to be a chan int64 where RoundTrip will push bytes-written progress updates.
 //	  The first message to this chan will be either the content-length (if known) or 0 if not.
 func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	var (
@@ -154,7 +157,7 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	)
 	info.Sem = semaphore.NewSemaphore(rt.workers + 1)
 
-	if outputFilePath := r.Context().Value(outfileKey); outputFilePath != nil {
+	if outputFilePath := r.Context().Value(OutfileKey); outputFilePath != nil {
 		// Validate file to write to, early
 		var err error
 		info.Out, err = os.Create(outputFilePath.(string))
@@ -167,7 +170,7 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		info.Out = rPool.Get()
 	}
 
-	if pchan := r.Context().Value(progressChanKey); pchan != nil {
+	if pchan := r.Context().Value(ProgressChanKey); pchan != nil {
 		info.Progress = pchan.(chan int64)
 	}
 
