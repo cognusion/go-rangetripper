@@ -5,14 +5,7 @@
 package rangetripper
 
 import (
-	"sync"
-
-	"github.com/cognusion/go-recyclable"
-	"github.com/cognusion/go-sequence"
-	"github.com/cognusion/go-timings"
-	"github.com/cognusion/semaphore"
-	"go.uber.org/atomic"
-
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -20,7 +13,14 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/cognusion/go-recyclable"
+	"github.com/cognusion/go-sequence"
+	"github.com/cognusion/go-timings"
+	"github.com/cognusion/semaphore"
+	"go.uber.org/atomic"
 )
 
 // Static errors to return
@@ -509,4 +509,14 @@ func (rt *RangeTripper) tryHeadFake(url string, info *rangeInfo) (*http.Response
 		return nil, headFakeFailedError
 	}
 
+}
+
+// WithOutfile returns a Context with a properly set OutfileKey.
+func WithOutfile(parent context.Context, outFilePath string) context.Context {
+	return context.WithValue(parent, OutfileKey, outFilePath)
+}
+
+// WithProgressChan returns a Context with a properly set ProgressChanKey.
+func WithProgressChan(parent context.Context, progressChan chan int64) context.Context {
+	return context.WithValue(parent, ProgressChanKey, progressChan)
 }

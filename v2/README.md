@@ -18,6 +18,8 @@ N+1 actual downloaders are most likely as the +1 covers any gap from non-even di
 
 ## <a name="pkg-index">Index</a>
 * [Constants](#pkg-constants)
+* [func WithOutfile(parent context.Context, outFilePath string) context.Context](#WithOutfile)
+* [func WithProgressChan(parent context.Context, progressChan chan int64) context.Context](#WithProgressChan)
 * [type Client](#Client)
 * [type RangeTripper](#RangeTripper)
   * [func New(fileChunks int) (*RangeTripper, error)](#New)
@@ -57,6 +59,22 @@ Static errors to return
 
 
 
+## <a name="WithOutfile">func</a> [WithOutfile](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=16189:16265#L515)
+``` go
+func WithOutfile(parent context.Context, outFilePath string) context.Context
+```
+WithOutfile returns a Context with a properly set OutfileKey.
+
+
+
+## <a name="WithProgressChan">func</a> [WithProgressChan](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=16405:16491#L520)
+``` go
+func WithProgressChan(parent context.Context, progressChan chan int64) context.Context
+```
+WithProgressChan returns a Context with a properly set ProgressChanKey.
+
+
+
 
 ## <a name="Client">type</a> [Client](https://github.com/cognusion/go-rangetripper/tree/master/v2/client.go?s=500:568#L14)
 ``` go
@@ -83,7 +101,7 @@ to a RangeTripper, or :mindblown:. DefaultClient can be a lowly http.Client if y
 
 
 
-## <a name="RangeTripper">type</a> [RangeTripper](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=2304:2431#L75)
+## <a name="RangeTripper">type</a> [RangeTripper](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=2314:2441#L75)
 ``` go
 type RangeTripper struct {
     TimingsOut *log.Logger
@@ -111,7 +129,8 @@ client := new(http.Client) // make a new Client
 rt, _ := New(10)           // make a new RangeTripper (errors ignored for brevity. Don't be dumb)
     client.Transport = rt      // Use the RangeTripper as the Transport
 
-    req, err := http.NewRequestWithContext(context.WithValue(context.Background(), OutfileKey, tfile.Name()), "GET", "https://google.com/", nil)
+    ctx := WithOutfile(context.Background(), tfile.Name())
+    req, err := http.NewRequestWithContext(ctx, "GET", "https://google.com/", nil)
     if err != nil {
         panic(err)
     }
@@ -126,7 +145,7 @@ rt, _ := New(10)           // make a new RangeTripper (errors ignored for brevit
 
 
 
-### <a name="New">func</a> [New](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=2613:2660#L87)
+### <a name="New">func</a> [New](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=2623:2670#L87)
 ``` go
 func New(fileChunks int) (*RangeTripper, error)
 ```
@@ -135,7 +154,7 @@ New returns a RangeTripper or an error. Logged messages are discarded.
 fileChunks is the number of pieces to divide the dowloaded file into (+/- 1). Overridden by SetMax.
 
 
-### <a name="NewWithLoggers">func</a> [NewWithLoggers](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=3066:3163#L98)
+### <a name="NewWithLoggers">func</a> [NewWithLoggers](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=3076:3173#L98)
 ``` go
 func NewWithLoggers(fileChunks int, timingLogger, debugLogger *log.Logger) (*RangeTripper, error)
 ```
@@ -151,7 +170,7 @@ debugLogger is a logger to send debug messages to.
 
 
 
-### <a name="RangeTripper.Do">func</a> (\*RangeTripper) [Do](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=10504:10571#L328)
+### <a name="RangeTripper.Do">func</a> (\*RangeTripper) [Do](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=10514:10581#L328)
 ``` go
 func (rt *RangeTripper) Do(r *http.Request) (*http.Response, error)
 ```
@@ -160,7 +179,7 @@ Do is a satisfier of the rangetripper.Client interface, and is identical to Roun
 
 
 
-### <a name="RangeTripper.RoundTrip">func</a> (\*RangeTripper) [RoundTrip](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=4714:4788#L154)
+### <a name="RangeTripper.RoundTrip">func</a> (\*RangeTripper) [RoundTrip](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=4724:4798#L154)
 ``` go
 func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error)
 ```
@@ -176,7 +195,7 @@ The following Context Key/Values impact the RoundTrip:
 
 
 
-### <a name="RangeTripper.SetChunkSize">func</a> (\*RangeTripper) [SetChunkSize](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=4151:4205#L139)
+### <a name="RangeTripper.SetChunkSize">func</a> (\*RangeTripper) [SetChunkSize](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=4161:4215#L139)
 ``` go
 func (rt *RangeTripper) SetChunkSize(chunkBytes int64)
 ```
@@ -187,7 +206,7 @@ number of concurrent workers, unless “SetMax()“ is used.
 
 
 
-### <a name="RangeTripper.SetClient">func</a> (\*RangeTripper) [SetClient](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=3621:3669#L124)
+### <a name="RangeTripper.SetClient">func</a> (\*RangeTripper) [SetClient](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=3631:3679#L124)
 ``` go
 func (rt *RangeTripper) SetClient(client Client)
 ```
@@ -196,7 +215,7 @@ SetClient allows for overriding the Client used to make the requests.
 
 
 
-### <a name="RangeTripper.SetMax">func</a> (\*RangeTripper) [SetMax](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=3775:3814#L129)
+### <a name="RangeTripper.SetMax">func</a> (\*RangeTripper) [SetMax](https://github.com/cognusion/go-rangetripper/tree/master/v2/rt.go?s=3785:3824#L129)
 ``` go
 func (rt *RangeTripper) SetMax(max int)
 ```
