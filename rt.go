@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -97,7 +98,7 @@ func NewWithLoggers(fileChunks int, outputFilePath string, timingLogger, debugLo
 	} else {
 		// Validate file to write to, early
 		var err error
-		outFile, err = os.Create(outputFilePath)
+		outFile, err = os.Create(path.Clean(outputFilePath))
 		if err != nil {
 			return nil, err
 		}
