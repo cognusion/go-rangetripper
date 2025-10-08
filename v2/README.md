@@ -224,7 +224,7 @@ SetMax allows for setting the maximum number of concurrently-running workers
 
 
 
-## <a name="RetryClient">type</a> [RetryClient](https://github.com/cognusion/go-rangetripper/tree/master/v2/retryclient.go?s=285:383#L18)
+## <a name="RetryClient">type</a> [RetryClient](https://github.com/cognusion/go-rangetripper/tree/master/v2/retryclient.go?s=284:382#L17)
 ``` go
 type RetryClient struct {
     // contains filtered or unexported fields
@@ -239,26 +239,26 @@ RetryClient contains variables and methods to use when making smarter HTTP reque
 
 
 
-### <a name="NewRetryClient">func</a> [NewRetryClient](https://github.com/cognusion/go-rangetripper/tree/master/v2/retryclient.go?s=529:604#L26)
+### <a name="NewRetryClient">func</a> [NewRetryClient](https://github.com/cognusion/go-rangetripper/tree/master/v2/retryclient.go?s=534:609#L25)
 ``` go
 func NewRetryClient(retries int, every, timeout time.Duration) *RetryClient
 ```
-NewRetryClient returns a RetryClient that will retry failed requests ``retries`` times, every ``every``,
-and use ``timeout`` as a timeout
+NewRetryClient returns a RetryClient that will retry failed requests “retries“ times, every “every“,
+and use “timeout“ as a timeout
 
 
-### <a name="NewRetryClientWithExponentialBackoff">func</a> [NewRetryClientWithExponentialBackoff](https://github.com/cognusion/go-rangetripper/tree/master/v2/retryclient.go?s=1051:1152#L42)
+### <a name="NewRetryClientWithExponentialBackoff">func</a> [NewRetryClientWithExponentialBackoff](https://github.com/cognusion/go-rangetripper/tree/master/v2/retryclient.go?s=1062:1163#L41)
 ``` go
 func NewRetryClientWithExponentialBackoff(retries int, initially, timeout time.Duration) *RetryClient
 ```
-NewRetryClientWithExponentialBackoff returns a RetryClient that will retry failed requests ``retries`` times,
-first after ``initially`` and exponentially longer each time, and use ``timeout`` as a timeout
+NewRetryClientWithExponentialBackoff returns a RetryClient that will retry failed requests “retries“ times,
+first after “initially“ and exponentially longer each time, and use “timeout“ as a timeout
 
 
 
 
 
-### <a name="RetryClient.Do">func</a> (\*RetryClient) [Do](https://github.com/cognusion/go-rangetripper/tree/master/v2/retryclient.go?s=1492:1559#L56)
+### <a name="RetryClient.Do">func</a> (\*RetryClient) [Do](https://github.com/cognusion/go-rangetripper/tree/master/v2/retryclient.go?s=1503:1570#L55)
 ``` go
 func (w *RetryClient) Do(req *http.Request) (*http.Response, error)
 ```
