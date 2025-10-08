@@ -4,8 +4,8 @@ github.com/cognusion/go-sequence v1.1.0 h1:MkYt6/iM4WaQh1WiuE1dnknwQEFdU0KBUbDf8
 github.com/cognusion/go-sequence v1.1.0/go.mod h1:m1eTjD2rGredOjvHMTklg8Unb7mz5OMlFPyOG9dgLws=
 github.com/cognusion/go-timings v1.2.0 h1:lljWBg+KxW00R3B41c5dpaLEk63I9hFOYIHarZpgHg8=
 github.com/cognusion/go-timings v1.2.0/go.mod h1:L550ClixSqcPdc15wJZxANdotDHviCx7j0Oj9EN5HwA=
-github.com/cognusion/semaphore v1.3.3 h1:ljJLkUi/Ju+cV+QGuNcGga2ZxYCbVJEaBeb28I13FQA=
-github.com/cognusion/semaphore v1.3.3/go.mod h1:a4FI8GMVDRUHpEYuC9sBxbEsF1yFO8Iqw4i1dmEQLv0=
+github.com/cognusion/semaphore v1.4.0 h1:iW7ejhkLapUJu8+W9ElBWA5wGqgP3cyQnoc9dFcbcjo=
+github.com/cognusion/semaphore v1.4.0/go.mod h1:GkTq0cUbUsmd3FzoHLwvZabhsNMocXwQpXxlh26aBQg=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/eapache/go-resiliency v1.7.0 h1:n3NRTnBn5N0Cbi/IeOHuQn9s2UwVUH7Ga0ZWcP+9JTA=
