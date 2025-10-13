@@ -2,12 +2,11 @@ package rangetripper
 
 import (
 	"errors"
-
-	"github.com/eapache/go-resiliency/retrier"
-
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/eapache/go-resiliency/retrier"
 )
 
 var (
@@ -21,8 +20,8 @@ type RetryClient struct {
 	retrier *retrier.Retrier
 }
 
-// NewRetryClient returns a RetryClient that will retry failed requests ``retries`` times, every ``every``,
-// and use ``timeout`` as a timeout
+// NewRetryClient returns a RetryClient that will retry failed requests “retries“ times, every “every“,
+// and use “timeout“ as a timeout
 func NewRetryClient(retries int, every, timeout time.Duration) *RetryClient {
 
 	b := make(retrier.BlacklistClassifier, 1)
@@ -37,8 +36,8 @@ func NewRetryClient(retries int, every, timeout time.Duration) *RetryClient {
 	}
 }
 
-// NewRetryClientWithExponentialBackoff returns a RetryClient that will retry failed requests ``retries`` times,
-// first after ``initially`` and exponentially longer each time, and use ``timeout`` as a timeout
+// NewRetryClientWithExponentialBackoff returns a RetryClient that will retry failed requests “retries“ times,
+// first after “initially“ and exponentially longer each time, and use “timeout“ as a timeout
 func NewRetryClientWithExponentialBackoff(retries int, initially, timeout time.Duration) *RetryClient {
 	b := make(retrier.BlacklistClassifier, 1)
 	b[0] = errStatusNope

@@ -1,6 +1,6 @@
-module github.com/cognusion/go-rangetripper
+module github.com/cognusion/go-rangetripper/v2
 
-go 1.22
+go 1.24
 
 toolchain go1.24.4
 
@@ -8,7 +8,7 @@ require (
 	github.com/cognusion/go-recyclable v1.2.0
 	github.com/cognusion/go-sequence v1.1.0
 	github.com/cognusion/go-timings v1.2.0
-	github.com/cognusion/semaphore v1.3.3
+	github.com/cognusion/semaphore v1.4.0
 	github.com/eapache/go-resiliency v1.7.0
 	github.com/fortytw2/leaktest v1.3.0
 	github.com/smartystreets/goconvey v1.8.1

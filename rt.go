@@ -5,31 +5,36 @@
 package rangetripper
 
 import (
-	"github.com/cognusion/go-recyclable"
-	"github.com/cognusion/go-sequence"
-	"github.com/cognusion/go-timings"
-	"github.com/cognusion/semaphore"
-	"go.uber.org/atomic"
-
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
-	"path"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cognusion/go-recyclable"
+	"github.com/cognusion/go-sequence"
+	"github.com/cognusion/go-timings"
+	"github.com/cognusion/semaphore"
+	"go.uber.org/atomic"
 )
 
 // Static errors to return
 const (
-	ContentLengthNumericError   = rtError("Content-Length value cannot be converted to a number")
-	ContentLengthMismatchError  = rtError("downloaded file size does not match content-length")
-	SingleRequestExhaustedError = rtError("one request has already been made with this RangeTripper")
+	ContentLengthNumericError  = rtError("Content-Length value cannot be converted to a number")
+	ContentLengthMismatchError = rtError("downloaded file size does not match content-length")
 
 	headFakeFailedError = rtError("headfake failed, return previous error")
+
+	// OutfileKey is used in an http.Request's Context.WithValue to specify a file to write the fetched web object to, instead of a buffer.
+	OutfileKey contextIDKey = iota
+	// ProgressChanKey is used in an http.Request's Context.WithValue to pass a chan int64 where RoundTrip will push bytes-written progress updates.
+	// The first message to this chan will be either the content-length (if known) or 0 if not.
+	ProgressChanKey
 )
 
 var (
@@ -37,8 +42,12 @@ var (
 	rPool = recyclable.NewBufferPool()
 )
 
-// RTError is an error type
-type rtError string
+type (
+	// rtError is an error type
+	rtError string
+	// contextIDKey is a type for shoving into contexts
+	contextIDKey int
+)
 
 // Error returns the stringified version of RTError
 func (e rtError) Error() string {
@@ -51,6 +60,15 @@ type rangeWriter interface {
 	io.WriterAt
 }
 
+// rangeInfo is a utility struct to synchronize shared objects across goros
+type rangeInfo struct {
+	Error    atomic.Error
+	Progress chan int64
+	WG       sync.WaitGroup
+	Out      rangeWriter
+	Sem      semaphore.Semaphore
+}
+
 // RangeTripper is an http.RoundTripper to be used in an http.Client.
 // This should not be used in its default state, instead by its New functions.
 // A single RangeTripper *must* only be used for one request.
@@ -58,51 +76,26 @@ type RangeTripper struct {
 	TimingsOut *log.Logger
 	DebugOut   *log.Logger
 
-	client     Client
-	workers    int
-	toFile     string
-	outFile    rangeWriter
-	wg         sync.WaitGroup
-	sem        semaphore.Semaphore
-	progress   chan int64
-	used       atomic.Bool
-	fetchError atomic.Error
-	chunkSize  int64
+	client    Client
+	workers   int
+	chunkSize int64
 }
 
 // New returns a RangeTripper or an error. Logged messages are discarded.
 //
 // fileChunks is the number of pieces to divide the dowloaded file into (+/- 1). Overridden by SetMax.
-//
-// outFilePath is the path to a filesystem location to save the file to, or "BUFFER". In the latter case,
-// the contents will be returned in the final http.Response returned by Roundtrip, as the Response.Body.
-func New(fileChunks int, outputFilePath string) (*RangeTripper, error) {
-	return NewWithLoggers(fileChunks, outputFilePath, nil, nil)
+func New(fileChunks int) (*RangeTripper, error) {
+	return NewWithLoggers(fileChunks, nil, nil)
 }
 
 // NewWithLoggers returns a RangeTripper or an error. Logged messages are sent to the specified Logger, or discarded if nil.
 //
 // fileChunks is the number of pieces to divide the dowloaded file into (+/- 1). Overridden by SetMax.
 //
-// outFilePath is the path to a filesystem location to save the file to, or "BUFFER". In the latter case,
-// the contents will be returned in the final http.Response returned by Roundtrip, as the Response.Body.
-//
 // timingLogger is a logger to send timing-related messages to.
 //
 // debugLogger is a logger to send debug messages to.
-func NewWithLoggers(fileChunks int, outputFilePath string, timingLogger, debugLogger *log.Logger) (*RangeTripper, error) {
-	var outFile rangeWriter
-	if outputFilePath == "BUFFER" {
-		// Memory buffer, not file
-		outFile = rPool.Get()
-	} else {
-		// Validate file to write to, early
-		var err error
-		outFile, err = os.Create(path.Clean(outputFilePath))
-		if err != nil {
-			return nil, err
-		}
-	}
+func NewWithLoggers(fileChunks int, timingLogger, debugLogger *log.Logger) (*RangeTripper, error) {
 
 	// sanity
 	if fileChunks < 1 {
@@ -123,10 +116,7 @@ func NewWithLoggers(fileChunks int, outputFilePath string, timingLogger, debugLo
 		TimingsOut: timingLogger,
 		DebugOut:   debugLogger,
 		workers:    fileChunks,
-		toFile:     outputFilePath,
-		outFile:    outFile,
 		client:     DefaultClient,
-		sem:        semaphore.NewSemaphore(fileChunks + 1),
 	}, nil
 }
 
@@ -139,11 +129,8 @@ func (rt *RangeTripper) SetClient(client Client) {
 func (rt *RangeTripper) SetMax(max int) {
 	if max == 0 {
 		return
-	} else if max > rt.workers {
-		max = rt.workers + 1
 	}
-
-	rt.sem = semaphore.NewSemaphore(max)
+	rt.workers = max
 }
 
 // SetChunkSize overrides the “fileChunks“ and instead will divide the resulting Content-Length by this to
@@ -157,30 +144,34 @@ func (rt *RangeTripper) SetChunkSize(chunkBytes int64) {
 	rt.chunkSize = chunkBytes
 }
 
-// WithProgress returns a read-only chan that will first provide the total length of the content (in bytes),
-// followed by a stream of completed byte-lengths. CAUTION: It is a generally bad idea to call this and then
-// ignore the resulting channel.
-func (rt *RangeTripper) WithProgress() <-chan int64 {
-	if rt.progress == nil {
-		rt.progress = make(chan int64, 100)
-	}
-	return rt.progress
-}
-
-// RoundTrip is called with a formed Request, writing the Body of the Response to
-// to the specified output file. The Response should be ignored, but
-// errors are important. Both the Request.Body and the RangeTripper.outFile will be
-// closed when this function returns.
+// RoundTrip is called with a formed Request.
+//
+// The following Context Key/Values impact the RoundTrip:
+//
+//	OutfileKey: The value of that is assumed to be a file path path that is where the file should be written to.
+//	ProgressChanKey: The value is assumed to be a chan int64 where RoundTrip will push bytes-written progress updates.
+//	  The first message to this chan will be either the content-length (if known) or 0 if not.
 func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
-	// We only allow one execution total, which is gated by the rt.used flag.
-	if rt.used.Swap(true) {
-		// Swap has atomically set the value to true, and returned the previous
-		// value of also true.
-		return nil, SingleRequestExhaustedError
+	var (
+		info rangeInfo
+	)
+	info.Sem = semaphore.NewSemaphore(rt.workers + 1)
+
+	if outputFilePath := r.Context().Value(OutfileKey); outputFilePath != nil {
+		// Validate file to write to, early
+		var err error
+		info.Out, err = os.Create(outputFilePath.(string))
+		if err != nil {
+			return nil, err
+		}
+		defer info.Out.(*os.File).Close()
+	} else {
+		// Memory buffer, not file
+		info.Out = rPool.Get()
 	}
 
-	if f, ok := rt.outFile.(*os.File); ok {
-		defer f.Close()
+	if pchan := r.Context().Value(ProgressChanKey); pchan != nil {
+		info.Progress = pchan.(chan int64)
 	}
 
 	if r.Body != nil {
@@ -199,7 +190,7 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	// Error on head: Bail?
 	if hres, err = rt.head(r.URL.String()); err != nil {
 		// Some systems toss odd errors on HEAD requests. Noted against a PHP downloader that takes parameters.
-		hresn, errn := rt.tryHeadFake(r.URL.String())
+		hresn, errn := rt.tryHeadFake(r.URL.String(), &info)
 		if errn != nil {
 			// headfake didn't work out, return original error
 			return nil, err
@@ -215,7 +206,7 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 
 	if hres.StatusCode == http.StatusForbidden {
 		// Forbidden might just be for the HEAD
-		hfres, hferr := rt.tryHeadFake(r.URL.String())
+		hfres, hferr := rt.tryHeadFake(r.URL.String(), &info)
 		if hferr == headFakeFailedError {
 			// we resort to returning the original HEAD403
 			return nil, fmt.Errorf("error during HEAD: %d / %s", hres.StatusCode, hres.Status)
@@ -237,13 +228,18 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 
 	if cl := hres.Header.Get("Content-Length"); cl == "" {
 		// No Content-Length? Just grab it like normal :(
-		if err = rt.fetch(r.URL.String()); err != nil {
+		if err = rt.fetch(r.URL.String(), &info); err != nil {
 			return nil, err
 		}
 		return hres, nil
 	} else if contentLength, err = strconv.Atoi(cl); err != nil {
 		// Non-numeric content-length? Bail.
 		return nil, fmt.Errorf("[%s] value of Content-Length header appears non-numeric: '%s': %w", dlid, cl, ContentLengthNumericError)
+	}
+
+	// Ship the content-length to progressChan
+	if info.Progress != nil {
+		info.Progress <- int64(contentLength)
 	}
 
 	// Byte ranges accepted? Let's do this
@@ -258,38 +254,34 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 			rt.workers = int(contentLength / chunkSize)
 		}
 
-		if rt.progress != nil {
-			rt.progress <- int64(contentLength)
-		}
-
 		rt.DebugOut.Printf("[%s] Ranges supported! Content Length: %d, Downloaders: %d, Chunk Size %d\n", dlid, contentLength, rt.workers, chunkSize)
 
 		for range rt.workers {
-			rt.sem.Lock()
-			if ferr := rt.fetchError.Load(); ferr != nil {
+			info.Sem.Lock()
+			if ferr := info.Error.Load(); ferr != nil {
 				// We've had an error, bail
 				rt.DebugOut.Printf("\t[%s] Error %v encountered while spawning workers, aborting at %d\n", dlid, ferr, start)
 				return nil, ferr
 			}
 
-			rt.wg.Add(1)
+			info.WG.Add(1)
 			end = start + int(chunkSize)
 			rt.DebugOut.Printf("\t[%s] Worker from %d to %d\n", dlid, start, end)
-			go rt.fetchChunk(int64(start), int64(end), r.URL.String())
+			go rt.fetchChunk(int64(start), int64(end), r.URL.String(), &info)
 			start = end
 		}
 		if end < contentLength {
 			// gap
-			rt.sem.Lock()
-			rt.wg.Add(1)
+			info.Sem.Lock()
+			info.WG.Add(1)
 			start = end
 			end = contentLength
 			rt.DebugOut.Printf("\t[%s] Gap worker from %d to %d\n", dlid, start, end)
-			go rt.fetchChunk(int64(start), int64(end), r.URL.String())
+			go rt.fetchChunk(int64(start), int64(end), r.URL.String(), &info)
 		}
-		rt.wg.Wait() // wrap in a timer?
+		info.WG.Wait() // wrap in a timer?
 
-		if ferr := rt.fetchError.Load(); ferr != nil {
+		if ferr := info.Error.Load(); ferr != nil {
 			// We've had an error, bail
 			rt.DebugOut.Printf("[%s] Error %v encountered after all workers spawned, aborting\n", dlid, ferr)
 			return nil, ferr
@@ -299,7 +291,7 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		defer timings.Track(fmt.Sprintf("[%s] RangeTripper Assembled", dlid), time.Now(), rt.TimingsOut)
 
 		//Verify file size
-		if f, ok := rt.outFile.(*os.File); ok {
+		if f, ok := info.Out.(*os.File); ok {
 			fileStats, err := f.Stat()
 			if err != nil {
 				return nil, err
@@ -307,14 +299,14 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 			if fileSize := fileStats.Size(); fileSize != int64(contentLength) {
 				return nil, fmt.Errorf("[%s] actual Size: %d expected Size: %d : %w", dlid, fileSize, contentLength, ContentLengthMismatchError)
 			}
-		} else if f, ok := rt.outFile.(*recyclable.Buffer); ok {
+		} else if f, ok := info.Out.(*recyclable.Buffer); ok {
 			// Buffer size check
 			if f.Len() != contentLength {
 				return nil, fmt.Errorf("[%s] actual Size: %d expected Size: %d : %w", dlid, f.Len(), contentLength, ContentLengthMismatchError)
 			}
 		}
 
-		if f, ok := rt.outFile.(io.ReadCloser); ok {
+		if f, ok := info.Out.(io.ReadCloser); ok {
 			hres.Body = f
 		}
 		return hres, nil
@@ -322,11 +314,11 @@ func (rt *RangeTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	// else Byte ranges not accepted :(
 	rt.DebugOut.Printf("[%s] Range Download unsupported\nBeginning full download...\n", dlid)
 
-	rt.fetch(r.URL.String())
+	rt.fetch(r.URL.String(), &info)
 
 	rt.DebugOut.Printf("[%s] Download Complete\n", dlid)
 
-	if f, ok := rt.outFile.(*recyclable.Buffer); ok {
+	if f, ok := info.Out.(*recyclable.Buffer); ok {
 		hres.Body = f
 	}
 	return hres, nil
@@ -388,11 +380,12 @@ func (rt *RangeTripper) headFake(url string) (*http.Response, error) {
 
 // fetch is a full-response fetch-and-write func.
 // It consumes the response entirely
-func (rt *RangeTripper) fetch(url string) error {
+func (rt *RangeTripper) fetch(url string, info *rangeInfo) error {
 	var (
 		req *http.Request
 		res *http.Response
 		err error
+		n   int64
 	)
 
 	if req, err = http.NewRequest("GET", url, nil); err != nil {
@@ -404,8 +397,11 @@ func (rt *RangeTripper) fetch(url string) error {
 	}
 	defer res.Body.Close()
 
-	if _, err = io.Copy(rt.outFile, res.Body); err != nil {
+	if n, err = io.Copy(info.Out, res.Body); err != nil {
 		return fmt.Errorf("error during write: %w", err)
+	}
+	if info.Progress != nil {
+		defer func() { info.Progress <- n }()
 	}
 
 	rt.DebugOut.Printf("Finished Downloading %s\n", url)
@@ -415,26 +411,26 @@ func (rt *RangeTripper) fetch(url string) error {
 // fetchChunk is a range fetch-and-write func.
 // It consumes the response entirely, and assumes a WaitGroup has been Added
 // to before it is called.
-func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
+func (rt *RangeTripper) fetchChunk(start, end int64, url string, info *rangeInfo) error {
 	var (
 		req *http.Request
 		res *http.Response
 		err error
 	)
 
-	if rt.progress != nil {
-		defer func() { rt.progress <- end - start }()
+	if info.Progress != nil {
+		defer func() { info.Progress <- end - start }()
 	}
 
-	defer rt.sem.Unlock()
-	defer rt.wg.Done()
+	defer info.Sem.Unlock()
+	defer info.WG.Done()
 	defer timings.Track(fmt.Sprintf("\tfetchChunk %d - %d", start, end), time.Now(), rt.TimingsOut)
 
 	// SHOULD BE LAST of the compulsory defers, so is the first to exec before there are unlocks, etc.
 	// If an error occurs, stuff the value. We know that there will be overwrites, and that is ok
 	defer func() {
 		if err != nil {
-			rt.fetchError.Store(err)
+			info.Error.Store(err)
 		}
 	}()
 
@@ -457,7 +453,7 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 	if ra, err = io.ReadAll(res.Body); err != nil {
 		rt.DebugOut.Printf("Error during ReadAll byte %d: %s\n", start, err)
 		return err
-	} else if _, err = rt.outFile.WriteAt(ra, start); err != nil {
+	} else if _, err = info.Out.WriteAt(ra, start); err != nil {
 		rt.DebugOut.Printf("Error during writing byte %d: %s\n", start, err)
 		return err
 	}
@@ -470,7 +466,7 @@ func (rt *RangeTripper) fetchChunk(start, end int64, url string) error {
 // it can now be used elsewhere. If the error is `headFakeFailedError`, that means
 // there was no error, per se, but neither were the results compelling, so you should
 // return any previous error you got from the HEAD.
-func (rt *RangeTripper) tryHeadFake(url string) (*http.Response, error) {
+func (rt *RangeTripper) tryHeadFake(url string, info *rangeInfo) (*http.Response, error) {
 	// headFake returns the Response or error from a GET request with a small RANGE
 	// IFF the Response is a 206 with Content-Length and Content-Range, used in cases
 	// where a HEAD may 403 (e.g. AWS S3) but a GET works fine
@@ -479,8 +475,17 @@ func (rt *RangeTripper) tryHeadFake(url string) (*http.Response, error) {
 	} else if hfres.StatusCode == http.StatusOK {
 		// 200 means it didn't accept the range, and gave us the whole file
 		defer hfres.Body.Close()
-		if _, err := io.Copy(rt.outFile, hfres.Body); err != nil {
+
+		var (
+			err error
+			n   int64
+		)
+
+		if n, err = io.Copy(info.Out, hfres.Body); err != nil {
 			return nil, fmt.Errorf("error during write (hf): %w", err)
+		}
+		if info.Progress != nil {
+			func() { info.Progress <- n }()
 		}
 		// We done, albeit without ranges
 		return hfres, nil
@@ -504,4 +509,14 @@ func (rt *RangeTripper) tryHeadFake(url string) (*http.Response, error) {
 		return nil, headFakeFailedError
 	}
 
+}
+
+// WithOutfile returns a Context with a properly set OutfileKey.
+func WithOutfile(parent context.Context, outFilePath string) context.Context {
+	return context.WithValue(parent, OutfileKey, outFilePath)
+}
+
+// WithProgressChan returns a Context with a properly set ProgressChanKey.
+func WithProgressChan(parent context.Context, progressChan chan int64) context.Context {
+	return context.WithValue(parent, ProgressChanKey, progressChan)
 }

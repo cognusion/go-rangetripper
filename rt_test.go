@@ -7,6 +7,7 @@ import (
 	"github.com/fortytw2/leaktest"
 	. "github.com/smartystreets/goconvey/convey"
 
+	"context"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +16,7 @@ import (
 	"time"
 )
 
-func ExampleRangeTripper() {
+func Example() {
 	// Set up a temporary file
 	tfile, err := os.CreateTemp("/tmp", "rt")
 	if err != nil {
@@ -23,11 +24,17 @@ func ExampleRangeTripper() {
 	}
 	defer os.Remove(tfile.Name()) // clean up after ourselves
 
-	client := new(http.Client)     // make a new Client
-	rt, _ := New(10, tfile.Name()) // make a new RangeTripper (errors ignored for brevity. Don't be dumb)
-	client.Transport = rt          // Use the RangeTripper as the Transport
+	client := new(http.Client) // make a new Client
+	rt, _ := New(10)           // make a new RangeTripper (errors ignored for brevity. Don't be dumb)
+	client.Transport = rt      // Use the RangeTripper as the Transport
 
-	if _, err := client.Get("https://google.com/"); err != nil {
+	ctx := WithOutfile(context.Background(), tfile.Name())
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://google.com/", nil)
+	if err != nil {
+		panic(err)
+	}
+
+	if _, err := client.Do(req); err != nil {
 		panic(err)
 	}
 	// tfile is the google homepage
@@ -53,14 +60,11 @@ func Test_StandardDownload(t *testing.T) {
 		// Close the server when test finishes
 		defer server.Close()
 
-		// Use Client & URL from our local test server
-		//l := log.New(os.Stderr, "[DEBUG] ", 0)
-		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
-
-		rt, err := New(10, tfile.Name())
+		rt, err := New(10)
 		So(err, ShouldBeNil)
 
-		req := httptest.NewRequest("GET", server.URL, nil)
+		ctx := WithOutfile(context.Background(), tfile.Name())
+		req := httptest.NewRequestWithContext(ctx, "GET", server.URL, nil)
 
 		_, rerr := rt.RoundTrip(req)
 		So(rerr, ShouldBeNil)
@@ -95,11 +99,12 @@ func Test_StandardDownloadHTTPClient(t *testing.T) {
 		//l := log.New(os.Stderr, "[DEBUG] ", 0)
 		//rt, err := NewWithLoggers(10, tfile.Name(), l, l)
 
-		rt, err := New(10, tfile.Name())
+		rt, err := New(10)
 		rt.SetClient(new(http.Client)) // use a normal http.Client
 		So(err, ShouldBeNil)
 
-		req := httptest.NewRequest("GET", server.URL, nil)
+		ctx := WithOutfile(context.Background(), tfile.Name())
+		req := httptest.NewRequestWithContext(ctx, "GET", server.URL, nil)
 
 		_, rerr := rt.RoundTrip(req)
 		So(rerr, ShouldBeNil)
@@ -138,14 +143,17 @@ func Test_RangeDownloadFile(t *testing.T) {
 		// Close the server when test finishes
 		defer server.Close()
 
-		rt, err := New(10, tfile.Name())
+		rt, err := New(10)
 		So(err, ShouldBeNil)
 
-		req := httptest.NewRequest("GET", server.URL, nil)
+		progressChan := make(chan int64)
+
+		ctx := WithOutfile(context.Background(), tfile.Name())
+		ctx = WithProgressChan(ctx, progressChan)
+		req := httptest.NewRequestWithContext(ctx, "GET", server.URL, nil)
 
 		// Check the progress
 		done := make(chan interface{})
-		progress := rt.WithProgress()
 		go func(x C, p <-chan int64) {
 
 			contentLength := <-p // first item is the contentLength
@@ -161,7 +169,7 @@ func Test_RangeDownloadFile(t *testing.T) {
 				}
 			}
 
-		}(c, progress)
+		}(c, progressChan)
 
 		_, rerr := rt.RoundTrip(req) // Run the request
 		close(done)                  // Close the done chan
@@ -196,14 +204,16 @@ func Test_RangeDownloadBuffer(t *testing.T) {
 		// Close the server when test finishes
 		defer server.Close()
 
-		rt, err := New(10, "BUFFER")
+		rt, err := New(10)
 		So(err, ShouldBeNil)
 
-		req := httptest.NewRequest("GET", server.URL, nil)
+		progressChan := make(chan int64)
+
+		ctx := WithProgressChan(context.Background(), progressChan)
+		req := httptest.NewRequestWithContext(ctx, "GET", server.URL, nil)
 
 		// Check the progress
 		done := make(chan interface{})
-		progress := rt.WithProgress()
 		go func(x C, p <-chan int64) {
 
 			contentLength := <-p // first item is the contentLength
@@ -219,7 +229,7 @@ func Test_RangeDownloadBuffer(t *testing.T) {
 				}
 			}
 
-		}(c, progress)
+		}(c, progressChan)
 
 		resp, rerr := rt.RoundTrip(req) // Run the request
 		close(done)                     // Close the done chan
@@ -259,12 +269,14 @@ func Test_RangeDownloadChunkSize(t *testing.T) {
 			tfile.Close()
 			defer os.Remove(tfile.Name())
 
-			rt, err := New(10, name)
+			rt, err := New(10)
 			//rt, err := NewWithLoggers(10, name, log.New(io.Discard, "", 0), log.New(os.Stderr, "[DEBUG] ", 0))
 			So(err, ShouldBeNil)
 			rt.SetChunkSize(chunkSize)
 
-			req := httptest.NewRequest("GET", server.URL, nil)
+			ctx := WithOutfile(context.Background(), name)
+			req := httptest.NewRequestWithContext(ctx, "GET", server.URL, nil)
+
 			_, rerr := rt.RoundTrip(req) // Run the request
 			So(rerr, ShouldBeNil)
 
@@ -295,11 +307,12 @@ func Test_HEAD403(t *testing.T) {
 		// Close the server when test finishes
 		defer server.Close()
 
-		rt, err := New(10, tfile.Name())
+		rt, err := New(10)
 		rt.SetClient(new(http.Client)) // use a normal http.Client
 		So(err, ShouldBeNil)
 
-		req, _ := http.NewRequest("GET", server.URL, nil)
+		ctx := WithOutfile(context.Background(), tfile.Name())
+		req := httptest.NewRequestWithContext(ctx, "GET", server.URL, nil)
 
 		_, rerr := rt.RoundTrip(req)
 		So(rerr, ShouldNotBeNil)
@@ -329,13 +342,14 @@ func Test_HEAD403(t *testing.T) {
 		defer server.Close()
 
 		//rt, err := NewWithLoggers(10, tfile.Name(), log.New(io.Discard, "", 0), log.New(os.Stderr, "[DEBUG] ", 0))
-		rt, err := New(10, tfile.Name())
+		rt, err := New(10)
 		rt.SetClient(new(http.Client)) // use a normal http.Client
 		rt.SetChunkSize(10)
 
 		So(err, ShouldBeNil)
 
-		req, _ := http.NewRequest("GET", server.URL, nil)
+		ctx := WithOutfile(context.Background(), tfile.Name())
+		req := httptest.NewRequestWithContext(ctx, "GET", server.URL, nil)
 
 		_, rerr := rt.RoundTrip(req)
 		So(rerr, ShouldBeNil)
@@ -369,13 +383,14 @@ func Test_HEAD403(t *testing.T) {
 		defer server.Close()
 
 		//rt, err := NewWithLoggers(10, tfile.Name(), log.New(io.Discard, "", 0), log.New(os.Stderr, "[DEBUG] ", 0))
-		rt, err := New(10, tfile.Name())
+		rt, err := New(10)
 		rt.SetClient(new(http.Client)) // use a normal http.Client
 		rt.SetChunkSize(10)
 
 		So(err, ShouldBeNil)
 
-		req, _ := http.NewRequest("GET", server.URL, nil)
+		ctx := WithOutfile(context.Background(), tfile.Name())
+		req := httptest.NewRequestWithContext(ctx, "GET", server.URL, nil)
 
 		_, rerr := rt.RoundTrip(req)
 		So(rerr, ShouldBeNil)
@@ -505,11 +520,12 @@ func Test_StandardDownload500s(t *testing.T) {
 		// Close the server when test finishes
 		defer server.Close()
 
-		rt, err := New(10, tfile.Name())
+		rt, err := New(10)
 		rt.SetClient(NewRetryClient(3, 10*time.Millisecond, 10*time.Millisecond)) // custom RetryClient with short times
 		So(err, ShouldBeNil)
 
-		req := httptest.NewRequest("GET", server.URL, nil)
+		ctx := WithOutfile(context.Background(), tfile.Name())
+		req := httptest.NewRequestWithContext(ctx, "GET", server.URL, nil)
 
 		_, rerr := rt.RoundTrip(req)
 		So(rerr, ShouldNotBeNil)
@@ -546,11 +562,12 @@ func Test_HEADErrorButGETRange(t *testing.T) {
 		// Close the server when test finishes
 		defer server.Close()
 
-		rt, err := New(10, tfile.Name())
+		rt, err := New(10)
 		rt.SetClient(NewRetryClient(3, 10*time.Millisecond, 10*time.Millisecond)) // custom RetryClient with short times
 		So(err, ShouldBeNil)
 
-		req := httptest.NewRequest("GET", server.URL, nil)
+		ctx := WithOutfile(context.Background(), tfile.Name())
+		req := httptest.NewRequestWithContext(ctx, "GET", server.URL, nil)
 
 		_, rerr := rt.RoundTrip(req)
 		So(rerr, ShouldBeNil)
@@ -583,20 +600,16 @@ func Test_StandardDownloadSecondRequestFails(t *testing.T) {
 		// Close the server when test finishes
 		defer server.Close()
 
-		rt, err := New(10, tfile.Name())
+		rt, err := New(10)
 		So(err, ShouldBeNil)
 
-		req := httptest.NewRequest("GET", server.URL, nil)
+		ctx := WithOutfile(context.Background(), tfile.Name())
+		req := httptest.NewRequestWithContext(ctx, "GET", server.URL, nil)
 
 		_, rerr := rt.RoundTrip(req)
 		So(rerr, ShouldBeNil)
 		fileContents, ferr := os.ReadFile(tfile.Name())
 		So(ferr, ShouldBeNil)
 		So(string(fileContents), ShouldEqual, string(serverBytes))
-
-		Convey("... but when a second request is attempted, it fails appropriately", func() {
-			_, rerr := rt.RoundTrip(req)
-			So(rerr, ShouldEqual, SingleRequestExhaustedError)
-		})
 	})
 }
